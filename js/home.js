@@ -145,9 +145,9 @@ async function createCase({ title, reference = '', description = '' }, buildDoc)
   let meta;
   // La liste est mise à jour en premier pour que la référence générée soit unique.
   await updateIndex((index) => {
-    const ref = reference.trim().slice(0, 40) || `CD-${new Date().getFullYear()}-${String(index.cases.length + 1).padStart(3, '0')}`;
+    const ref = reference.trim() || `CD-${new Date().getFullYear()}-${String(index.cases.length + 1).padStart(3, '0')}`;
     meta = {
-      id, reference: ref, title: title.trim().slice(0, 150), description: description.trim().slice(0, 2000),
+      id, reference: ref, title: title.trim(), description: description.trim(),
       status: 'ouvert', created_by: session.name, created_at: now, updated_at: now, item_count: 0,
     };
     index.cases = index.cases.filter((c) => c.id !== id).concat(meta);
