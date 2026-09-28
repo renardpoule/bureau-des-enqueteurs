@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' https: http: data: blob:; connect-src 'self' https://api.github.com; base-uri 'none'; form-action 'self'">
+  <meta name="referrer" content="same-origin">
+  <title>Dossier — Bureau des enquêteurs</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/fonts.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/board.css">
+  <script type="module" src="js/board.js"></script>
+</head>
+<body class="board-page">
+  <header class="bar">
+    <a class="btn btn-ghost" href="index.html" title="Retour aux dossiers">← <span class="hide-sm">Dossiers</span></a>
+    <button id="btn-sidebar" class="btn btn-ghost btn-icon show-sm" type="button" aria-label="Afficher le classeur" aria-controls="sidebar">☰</button>
+    <button id="case-title" class="case-title" type="button">
+      <span class="case-ref" id="case-ref"></span>
+      <strong id="case-name">Chargement…</strong>
+    </button>
+    <span id="case-status" class="stamp"></span>
+    <div class="bar-spacer"></div>
+    <span id="sync" class="sync" role="status" aria-live="polite"></span>
+    <div class="zoom" role="group" aria-label="Zoom">
+      <button id="zoom-out" class="btn btn-ghost btn-icon" type="button" aria-label="Dézoomer">−</button>
+      <button id="zoom-level" class="zoom-level" type="button" title="Tout afficher">100 %</button>
+      <button id="zoom-in" class="btn btn-ghost btn-icon" type="button" aria-label="Zoomer">+</button>
+    </div>
+    <button id="btn-add" class="btn btn-primary" type="button" hidden>+ Ajouter</button>
+    <button id="btn-journal" class="btn" type="button" aria-controls="journal">Journal</button>
+    <button id="btn-settings" class="btn btn-ghost btn-icon" type="button" aria-label="Réglages" title="Réglages">⚙</button>
+  </header>
+
+  <div class="workspace">
+    <aside id="sidebar" class="sidebar" aria-label="Classeur du dossier">
+      <div class="sidebar-head">
+        <p id="case-desc" class="case-desc"></p>
+        <input id="search" type="search" placeholder="Filtrer les éléments…" aria-label="Filtrer les éléments">
+      </div>
+      <nav id="sections" class="sections"></nav>
+    </aside>
+
+    <main id="viewport" class="viewport" tabindex="-1" aria-label="Tableau d'enquête">
+      <div id="world" class="world">
+        <div id="frame" class="frame" aria-hidden="true"></div>
+        <div id="board" class="board">
+          <div id="zones" class="layer"></div>
+          <div id="cards" class="layer"></div>
+          <svg id="overlay" class="overlay" xmlns="http://www.w3.org/2000/svg">
+            <defs id="defs"></defs>
+            <g id="strings"></g>
+            <path id="temp-string" class="string-temp" hidden></path>
+            <g id="pins"></g>
+          </svg>
+        </div>
+      </div>
+      <div id="hint" class="hint" hidden></div>
+      <div id="loading" class="loading">Ouverture du dossier…</div>
+    </main>
+
+    <aside id="inspector" class="panel inspector" hidden aria-label="Détails de l'élément"></aside>
+    <aside id="journal" class="panel journal" hidden aria-label="Journal du dossier">
+      <div class="panel-head">
+        <h2>Journal</h2>
+        <button id="journal-close" class="btn btn-ghost btn-icon" type="button" aria-label="Fermer le journal">✕</button>
+      </div>
+      <ol id="journal-list" class="journal-list"></ol>
+    </aside>
+  </div>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "name": "bureau-des-enqueteurs",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Tableau d'enquête collaboratif pour le comité disciplinaire (Garry's Mod RP), hébergé sur GitHub Pages.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "license": "MIT"
+}

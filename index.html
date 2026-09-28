@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' https: http: data: blob:; connect-src 'self' https://api.github.com; base-uri 'none'; form-action 'self'">
+  <meta name="referrer" content="same-origin">
+  <title>Bureau des enquêteurs</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/fonts.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/home.css">
+  <script type="module" src="js/home.js"></script>
+</head>
+<body>
+  <main id="login-view" class="login-view" hidden>
+    <form id="login-form" class="login-card" autocomplete="on">
+      <div class="login-seal" aria-hidden="true">CD</div>
+      <p class="login-kicker">Comité disciplinaire</p>
+      <h1>Bureau des enquêteurs</h1>
+      <p class="login-warning">Accès restreint — personnel habilité uniquement</p>
+      <label class="field"><span>Votre nom d'enquêteur</span><input name="username" autocomplete="username" required autofocus placeholder="Insp. Dupont"></label>
+      <label class="field"><span>Code du comité</span><input name="password" type="password" autocomplete="current-password" required></label>
+      <label class="check"><input name="remember" type="checkbox" checked> Rester connecté sur cet appareil</label>
+      <p class="form-error" id="login-error" role="alert"></p>
+      <button class="btn btn-primary login-submit" type="submit">Entrer</button>
+    </form>
+  </main>
+
+  <main id="setup-view" class="login-view" hidden>
+    <form id="setup-form" class="login-card setup-card" autocomplete="off">
+      <div class="login-seal" aria-hidden="true">CD</div>
+      <p class="login-kicker">Première utilisation</p>
+      <h1>Installer le bureau</h1>
+      <p class="setup-intro">Aucun bureau n'est encore installé sur ce site. Choisissez le <b>code du comité</b> : c'est lui qui chiffre les dossiers, et vous le donnerez aux membres du comité. <i>Si vous venez de l'installer, patientez une à deux minutes puis rechargez la page.</i></p>
+      <label class="field"><span>Votre nom d'enquêteur</span><input name="name" required></label>
+      <div class="field-row">
+        <label class="field"><span>Code du comité (8 caractères min.)</span><input name="code" type="password" autocomplete="new-password" required></label>
+        <label class="field"><span>Confirmer le code</span><input name="code2" type="password" autocomplete="new-password" required></label>
+      </div>
+      <div id="setup-github"></div>
+      <p class="form-error" id="setup-error" role="alert"></p>
+      <button class="btn btn-primary login-submit" type="submit">Installer le bureau</button>
+    </form>
+  </main>
+
+  <div id="app-view" hidden>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-seal" aria-hidden="true">CD</span>
+        <div>
+          <strong>Bureau des enquêteurs</strong>
+          <small>Comité disciplinaire</small>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <span id="whoami" class="whoami"></span>
+        <button id="btn-settings" class="btn btn-ghost" type="button">Réglages</button>
+        <button id="btn-logout" class="btn btn-ghost" type="button">Déconnexion</button>
+      </div>
+    </header>
+
+    <div id="readonly-banner" class="readonly-banner" hidden>
+      <span><b>Lecture seule.</b> Pour créer ou modifier des dossiers, ajoutez un jeton GitHub dans les réglages.</span>
+      <button id="btn-banner-settings" class="btn btn-sm" type="button">Réglages</button>
+    </div>
+    <main class="desk">
+      <div class="desk-head">
+        <div>
+          <h1>Dossiers</h1>
+          <p class="muted" id="case-count"></p>
+        </div>
+        <div class="desk-tools">
+          <input id="case-search" type="search" placeholder="Rechercher un dossier…" aria-label="Rechercher un dossier">
+          <select id="case-filter" aria-label="Filtrer par statut">
+            <option value="">Tous les statuts</option>
+            <option value="ouvert">Ouverts</option>
+            <option value="en_cours">En cours</option>
+            <option value="clos">Clos</option>
+            <option value="classe">Classés sans suite</option>
+          </select>
+          <button id="btn-new-case" class="btn btn-primary" type="button" hidden>+ Nouveau dossier</button>
+        </div>
+      </div>
+      <div id="cases" class="cases"></div>
+    </main>
+  </div>
+</body>
+</html>
