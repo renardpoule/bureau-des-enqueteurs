@@ -3,16 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' https: http: data: blob:; connect-src 'self' https://api.github.com; base-uri 'none'; form-action 'self'">
+  <meta name="referrer" content="same-origin">
   <title>Dossier — Bureau des enquêteurs</title>
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/css/fonts.css">
-  <link rel="stylesheet" href="/css/base.css">
-  <link rel="stylesheet" href="/css/board.css">
-  <script type="module" src="/js/board.js"></script>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/fonts.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/board.css">
+  <script type="module" src="js/board.js"></script>
 </head>
 <body class="board-page">
   <header class="bar">
-    <a class="btn btn-ghost" href="/" title="Retour aux dossiers">← <span class="hide-sm">Dossiers</span></a>
+    <a class="btn btn-ghost" href="index.html" title="Retour aux dossiers">← <span class="hide-sm">Dossiers</span></a>
     <button id="btn-sidebar" class="btn btn-ghost btn-icon show-sm" type="button" aria-label="Afficher le classeur" aria-controls="sidebar">☰</button>
     <button id="case-title" class="case-title" type="button">
       <span class="case-ref" id="case-ref"></span>
@@ -20,8 +22,7 @@
     </button>
     <span id="case-status" class="stamp"></span>
     <div class="bar-spacer"></div>
-    <span id="conn" class="conn" hidden>Hors ligne — reconnexion…</span>
-    <div id="presence" class="presence" aria-label="Enquêteurs connectés"></div>
+    <span id="sync" class="sync" role="status" aria-live="polite"></span>
     <div class="zoom" role="group" aria-label="Zoom">
       <button id="zoom-out" class="btn btn-ghost btn-icon" type="button" aria-label="Dézoomer">−</button>
       <button id="zoom-level" class="zoom-level" type="button" title="Tout afficher">100 %</button>
@@ -29,6 +30,7 @@
     </div>
     <button id="btn-add" class="btn btn-primary" type="button" hidden>+ Ajouter</button>
     <button id="btn-journal" class="btn" type="button" aria-controls="journal">Journal</button>
+    <button id="btn-settings" class="btn btn-ghost btn-icon" type="button" aria-label="Réglages" title="Réglages">⚙</button>
   </header>
 
   <div class="workspace">

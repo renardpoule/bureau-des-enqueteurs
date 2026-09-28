@@ -1,32 +1,5 @@
-// Shared helpers for every page: API calls, DOM building, dialogs, toasts.
-
-export const CLIENT_ID = (globalThis.crypto?.randomUUID?.() ?? `c${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`);
-
-export class ApiError extends Error {
-  constructor(status, message) { super(message); this.status = status; }
-}
-
-export async function api(method, url, body) {
-  const opts = { method, headers: { 'X-Requested-With': 'bde', 'X-Client-Id': CLIENT_ID } };
-  if (body !== undefined) {
-    opts.headers['Content-Type'] = 'application/json';
-    opts.body = JSON.stringify(body);
-  }
-  let res;
-  try { res = await fetch(url, opts); } catch { throw new ApiError(0, 'Serveur injoignable.'); }
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, data.error || `Erreur ${res.status}`);
-  return data;
-}
-
-export async function uploadImage(file) {
-  const form = new FormData();
-  form.append('image', file);
-  const res = await fetch('/api/uploads', { method: 'POST', body: form, headers: { 'X-Requested-With': 'bde' } });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, data.error || "Échec de l'envoi de l'image.");
-  return data.url;
-}
+// Outils communs à toutes les pages : construction du DOM, fenêtres, notifications, réglages.
+import { session, saveConfig, changeCode, setName, logout as endSession, canWrite } from './session.js';
 
 /** h('div', { class: 'x', onclick }, child, 'text', [more]) */
 export function h(tag, props, ...children) {
@@ -150,7 +123,6 @@ export function formDialog({ title, fields, ok = 'Enregistrer', intro, submit })
   });
 }
 
-export const ROLE_LABELS = { admin: 'Administrateur', enqueteur: 'Enquêteur', observateur: 'Observateur' };
 export const STATUS_LABELS = { ouvert: 'Ouvert', en_cours: 'En cours', clos: 'Clos', classe: 'Classé sans suite' };
 
 export function timeAgo(ts) {
@@ -169,24 +141,96 @@ export function initials(name) {
   return String(name).split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
 }
 
-export async function logout() {
-  await api('POST', '/api/logout').catch(() => {});
-  location.href = '/';
+
+export function logout() {
+  endSession();
+  location.href = 'index.html';
 }
 
-export function changePasswordDialog() {
-  return formDialog({
-    title: 'Changer mon mot de passe',
-    ok: 'Changer',
-    fields: [
-      { name: 'current', label: 'Mot de passe actuel', type: 'password', autocomplete: 'current-password', required: true },
-      { name: 'next', label: 'Nouveau mot de passe (8 caractères min.)', type: 'password', autocomplete: 'new-password', required: true },
-      { name: 'confirm', label: 'Confirmer le nouveau mot de passe', type: 'password', autocomplete: 'new-password', required: true },
-    ],
-    submit: async (v) => {
-      if (v.next !== v.confirm) throw new Error('Les deux mots de passe ne correspondent pas.');
-      await api('POST', '/api/me/password', { current: v.current, next: v.next });
-      toast('Mot de passe modifié.', 'ok');
-    },
+const TOKEN_URL = 'https://github.com/settings/personal-access-tokens/new';
+
+/** Champs « compte / dépôt / branche / jeton » réutilisés à l'installation et dans les réglages. */
+export function githubFields(config) {
+  const f = {
+    owner: h('input', { type: 'text', value: config.owner || '', autocomplete: 'off', spellcheck: 'false' }),
+    repo: h('input', { type: 'text', value: config.repo || '', autocomplete: 'off', spellcheck: 'false' }),
+    branch: h('input', { type: 'text', value: config.branch || '', placeholder: '(branche par défaut)', autocomplete: 'off', spellcheck: 'false' }),
+    token: h('input', { type: 'password', value: config.token || '', autocomplete: 'off', spellcheck: 'false', placeholder: 'github_pat_…' }),
+  };
+  const el = h('div', { class: 'gh-fields' },
+    h('div', { class: 'field-row' },
+      h('label', { class: 'field' }, h('span', {}, 'Compte GitHub'), f.owner),
+      h('label', { class: 'field' }, h('span', {}, 'Dépôt'), f.repo)),
+    h('label', { class: 'field' }, h('span', {}, 'Branche'), f.branch),
+    h('label', { class: 'field' }, h('span', {}, 'Jeton d’accès GitHub'), f.token,
+      h('small', { class: 'muted' }, 'Jeton « fine-grained » limité à ce dépôt, avec le droit ',
+        h('b', {}, 'Contents : Read and write'), '. ',
+        h('a', { href: TOKEN_URL, target: '_blank', rel: 'noopener' }, 'Créer un jeton'), '. Sans jeton, le bureau est en lecture seule.')));
+  const values = () => ({ owner: f.owner.value, repo: f.repo.value, branch: f.branch.value, token: f.token.value });
+  return { el, values };
+}
+
+/** Fenêtre de réglages : nom, accès GitHub, code du comité. `onChange` est appelé après un enregistrement. */
+export function settingsDialog(onChange) {
+  return modal((close) => {
+    const name = h('input', { type: 'text', value: session.name, maxlength: 60 });
+    const gh = githubFields(session.config);
+    const error = h('p', { class: 'form-error', role: 'alert' });
+    const save = h('button', { type: 'submit', class: 'btn btn-primary' }, 'Enregistrer');
+
+    const code1 = h('input', { type: 'password', autocomplete: 'new-password' });
+    const code2 = h('input', { type: 'password', autocomplete: 'new-password' });
+    const codeError = h('p', { class: 'form-error', role: 'alert' });
+    const codeBtn = h('button', { type: 'button', class: 'btn' }, 'Changer le code');
+    codeBtn.addEventListener('click', async () => {
+      codeError.textContent = '';
+      if (code1.value.length < 8) { codeError.textContent = 'Le code doit faire au moins 8 caractères.'; return; }
+      if (code1.value !== code2.value) { codeError.textContent = 'Les deux codes ne correspondent pas.'; return; }
+      codeBtn.disabled = true;
+      try {
+        await changeCode(code1.value);
+        code1.value = code2.value = '';
+        toast('Code du comité changé. Il sera actif pour tous d’ici une à deux minutes.', 'ok');
+      } catch (err) { codeError.textContent = err.message; }
+      codeBtn.disabled = false;
+    });
+
+    const form = h('form', { class: 'modal-body' },
+      h('h2', {}, 'Réglages'),
+      h('label', { class: 'field' }, h('span', {}, 'Votre nom d’enquêteur (apparaît dans le journal)'), name),
+      h('h3', { class: 'modal-sub' }, 'Enregistrement sur GitHub'),
+      gh.el,
+      error,
+      h('div', { class: 'modal-actions' },
+        h('button', { type: 'button', class: 'btn', onclick: () => close() }, 'Fermer'),
+        save),
+      canWrite() && h('details', { class: 'code-change' },
+        h('summary', {}, 'Changer le code du comité'),
+        h('p', { class: 'muted' }, 'À faire quand un membre quitte le comité. Communiquez ensuite le nouveau code aux autres membres.'),
+        h('div', { class: 'field-row' },
+          h('label', { class: 'field' }, h('span', {}, 'Nouveau code'), code1),
+          h('label', { class: 'field' }, h('span', {}, 'Confirmer'), code2)),
+        codeError,
+        h('div', { class: 'modal-actions' }, codeBtn)),
+    );
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      error.textContent = '';
+      if (!name.value.trim()) { error.textContent = 'Indiquez votre nom.'; return; }
+      save.disabled = true;
+      save.textContent = 'Vérification…';
+      try {
+        setName(name.value.trim());
+        await saveConfig(gh.values());
+        toast(canWrite() ? 'Réglages enregistrés : vous pouvez modifier les dossiers.' : 'Réglages enregistrés (lecture seule).', 'ok');
+        onChange?.();
+        close();
+      } catch (err) {
+        error.textContent = err.message;
+      }
+      save.disabled = false;
+      save.textContent = 'Enregistrer';
+    });
+    return form;
   });
 }

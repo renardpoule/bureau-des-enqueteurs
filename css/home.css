@@ -116,3 +116,17 @@
   .member select, .member-actions { grid-column: 2; }
   .member-add { grid-template-columns: 1fr; }
 }
+
+.login-card .check { color: rgba(34,30,24,.85); }
+.setup-card { width: min(560px, 100%); }
+.setup-intro { margin: 0 0 18px; font-size: 14px; line-height: 1.5; color: rgba(34,30,24,.85); }
+.setup-sub { margin: 16px 0 10px; font-size: 15px; }
+.login-card .field small { color: rgba(34,30,24,.7); }
+.login-card .field small a { color: #7a2a12; }
+.login-card .field small b { color: var(--ink); }
+
+.readonly-banner {
+  display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap;
+  padding: 10px 16px; background: #3a2e14; border-bottom: 1px solid #5a4620; font-size: 14px; color: #f3e2b3;
+}
+.empty-actions { margin-top: 14px; }

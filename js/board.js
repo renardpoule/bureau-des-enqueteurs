@@ -1,6 +1,9 @@
+import { h, toast, modal, confirmDialog, STATUS_LABELS, timeAgo, settingsDialog } from './common.js';
 import {
-  api, uploadImage, h, toast, modal, confirmDialog, CLIENT_ID, STATUS_LABELS, timeAgo, initials,
-} from './common.js';
+  session, canWrite, restoreSession, readText, updateJSON, updateIndex, uploadImage, imageURL, PATHS,
+} from './session.js';
+import { decryptJSON } from './crypto.js';
+import { applyOps, clone, pushOp, newId, nextNumber, BOARD } from './model.js';
 
 // ── configuration ─────────────────────────────────────────────────────
 const TYPES = {
@@ -64,9 +67,8 @@ const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
 const $ = (sel) => document.querySelector(sel);
 
 // ── state ─────────────────────────────────────────────────────────────
-const caseId = Number(location.pathname.split('/').filter(Boolean).pop());
+const caseId = new URLSearchParams(location.search).get('id') || '';
 const state = {
-  me: null,
   canEdit: false,
   case: null,
   board: { width: 6000, height: 4000 },
@@ -77,6 +79,8 @@ const state = {
   linkFrom: null, // item id while in "relier à…" mode
   dragging: new Set(), // ids moved locally right now (remote positions are ignored for them)
   collapsed: new Set(),
+  activity: [],
+  loggedEdit: new Set(), // éléments dont la modification est déjà notée au journal pour cette sélection
 };
 const cardEls = new Map();
 const pinEls = new Map();
@@ -103,46 +107,55 @@ const itemLabel = (item) => item.title || (item.body ? item.body.split('\n')[0].
 
 // ── start-up ──────────────────────────────────────────────────────────
 async function init() {
-  try {
-    ({ user: state.me } = await api('GET', '/api/me'));
-  } catch (err) {
-    if (err.status === 401) { location.href = `/?next=${encodeURIComponent(location.pathname)}`; return; }
-    return fatal(err.message);
+  if (!/^[a-z0-9]+$/.test(caseId)) return fatal('Dossier introuvable.');
+  if (!(await restoreSession())) {
+    location.href = `index.html?next=${encodeURIComponent(`dossier.html?id=${caseId}`)}`;
+    return;
   }
-  state.canEdit = state.me.role !== 'observateur';
+  state.canEdit = canWrite();
   document.body.classList.toggle('readonly', !state.canEdit);
   $('#btn-add').hidden = !state.canEdit;
 
-  let data;
+  let file;
   try {
-    data = await api('GET', `/api/cases/${caseId}`);
+    file = await readText(PATHS.dossier(caseId));
   } catch (err) {
-    return fatal(err.status === 404 ? "Ce dossier n'existe pas ou a été supprimé." : err.message);
+    return fatal(`Impossible d'ouvrir le dossier : ${err.message}`);
   }
+  if (!file) return fatal("Ce dossier n'existe pas ou a été supprimé. S'il vient d'être créé, patientez une minute puis rechargez la page.");
+  try {
+    sync.base = await decryptJSON(session.key, file.text);
+  } catch {
+    return fatal('Impossible de déchiffrer ce dossier : le code du comité a peut-être changé. Reconnectez-vous.');
+  }
+  sync.sha = file.sha;
   buildDefs();
-  load(data);
+  load(clone(sync.base));
   const saved = store.get(`bde:view:${caseId}`);
   if (saved && Number.isFinite(saved.s)) { state.view = saved; applyView(); } else fitAll(false);
   $('#loading').remove();
   showHint();
-  connect();
+  renderSync();
+  setInterval(poll, state.canEdit ? 15000 : 30000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
 }
 
 function fatal(message) {
-  $('#loading').replaceChildren(h('div', {}, h('p', {}, message), h('a', { class: 'btn', href: '/' }, 'Retour aux dossiers')));
+  $('#loading').replaceChildren(h('div', {}, h('p', {}, message), h('a', { class: 'btn', href: 'index.html' }, 'Retour aux dossiers')));
 }
 
-function load(data) {
-  state.case = data.case;
-  state.board = data.board;
-  board.style.width = `${data.board.width}px`;
-  board.style.height = `${data.board.height}px`;
-  overlay.setAttribute('width', data.board.width);
-  overlay.setAttribute('height', data.board.height);
-  $('#frame').style.cssText = `width:${data.board.width + 96}px;height:${data.board.height + 96}px`;
+function load(doc) {
+  state.case = doc.case;
+  state.activity = doc.activity || [];
+  state.board = BOARD;
+  board.style.width = `${BOARD.width}px`;
+  board.style.height = `${BOARD.height}px`;
+  overlay.setAttribute('width', BOARD.width);
+  overlay.setAttribute('height', BOARD.height);
+  $('#frame').style.cssText = `width:${BOARD.width + 96}px;height:${BOARD.height + 96}px`;
 
-  state.items = new Map(data.items.map((i) => [i.id, i]));
-  state.links = new Map(data.links.map((l) => [l.id, l]));
+  state.items = new Map(doc.items.map((i) => [i.id, i]));
+  state.links = new Map(doc.links.map((l) => [l.id, l]));
   zonesLayer.replaceChildren();
   cardsLayer.replaceChildren();
   stringsLayer.replaceChildren();
@@ -150,8 +163,7 @@ function load(data) {
   cardEls.clear(); pinEls.clear(); linkEls.clear();
   for (const item of state.items.values()) renderItem(item);
   for (const link of state.links.values()) renderLink(link);
-  if (state.selection && !(state.selection.kind === 'item' ? state.items : state.links).has(state.selection.id)) state.selection = null;
-  select(state.selection);
+  select(null);
   renderHeader();
   renderSidebar();
 }
@@ -171,9 +183,12 @@ function buildDefs() {
 // ── rendering: cards ──────────────────────────────────────────────────
 function img(src, alt = '') {
   if (!src) return null;
-  const el = h('img', { src, alt, draggable: false, loading: 'lazy', referrerpolicy: 'no-referrer' });
-  el.addEventListener('error', () => el.replaceWith(h('div', { class: 'img-missing' }, 'Image indisponible')));
-  el.addEventListener('load', () => updateLinksFor(Number(el.closest('.card')?.dataset.id)));
+  const el = h('img', { alt, draggable: false, referrerpolicy: 'no-referrer' });
+  const fail = () => el.replaceWith(h('div', { class: 'img-missing' }, 'Image indisponible'));
+  el.addEventListener('error', fail);
+  el.addEventListener('load', () => updateLinksFor(el.closest('.card')?.dataset.id));
+  if (src.startsWith('enc:')) imageURL(src).then((url) => { el.src = url; }, fail);
+  else el.src = src;
   return el;
 }
 
@@ -387,7 +402,7 @@ function removeLinkLocal(id) {
   if (state.selection?.kind === 'link' && state.selection.id === id) select(null);
 }
 
-// ── header, presence, sidebar ─────────────────────────────────────────
+// ── header, sidebar ─────────────────────────────────────────
 function renderHeader() {
   const c = state.case;
   document.title = `${c.reference} · ${c.title} — Bureau des enquêteurs`;
@@ -399,14 +414,6 @@ function renderHeader() {
   $('#case-desc').textContent = c.description;
   $('#case-desc').hidden = !c.description;
   $('#case-title').title = state.canEdit ? 'Modifier le dossier' : c.description || c.title;
-}
-
-function renderPresence(users) {
-  const box = $('#presence');
-  box.replaceChildren(...users.slice(0, 6).map((u) => h('span', {
-    class: `avatar${u.id === state.me.id ? ' me' : ''}`, title: `${u.name}${u.id === state.me.id ? ' (vous)' : ''}`,
-  }, initials(u.name))));
-  if (users.length > 6) box.append(h('span', { class: 'avatar more' }, `+${users.length - 6}`));
 }
 
 function renderSidebar() {
@@ -443,7 +450,7 @@ function renderSidebar() {
 // ── selection & inspector ─────────────────────────────────────────────
 function select(sel) {
   if (sel && state.selection && sel.kind === state.selection.kind && sel.id === state.selection.id && !inspector.hidden) return;
-  flushPatch();
+  state.loggedEdit.clear();
   state.selection = sel;
   refreshSelectionClasses();
   renderInspector();
@@ -463,25 +470,214 @@ function refreshSelectionClasses() {
   overlay.classList.toggle('focus-mode', sel?.kind === 'item' && [...state.links.values()].some((l) => l.from_id === sel.id || l.to_id === sel.id));
 }
 
-let pendingPatch = null; // { id, fields }
-let patchTimer = null;
+// ── enregistrement sur GitHub ─────────────────────────────────────────
+// Les modifications sont mises en file (opérations), puis envoyées par lots de quelques secondes.
+// Chaque envoi relit la dernière version du dossier et y rejoue nos opérations.
+const sync = {
+  base: null, // dernière version connue du dossier sur GitHub
+  sha: null,
+  pending: [],
+  saving: false,
+  polling: false,
+  version: 0, // incrémenté à chaque enregistrement, pour ignorer une lecture devenue obsolète
+  timer: null,
+  firstPendingAt: 0,
+  error: null,
+  lastSaved: 0,
+  indexAt: 0,
+  indexForce: false,
+  dead: false,
+  created: new Set(), // éléments créés pendant cette visite (pas de ligne « a modifié » au journal)
+};
 
-function queuePatch(item, fields) {
-  if (pendingPatch && pendingPatch.id !== item.id) flushPatch();
-  pendingPatch = { id: item.id, fields: { ...(pendingPatch?.fields || {}), ...fields } };
-  clearTimeout(patchTimer);
-  patchTimer = setTimeout(flushPatch, 450);
+const ITEM_NAMES = {
+  personne: 'la personne', temoignage: 'le témoignage', piece: 'la pièce à conviction', document: 'le document',
+  photo: 'la photo', lieu: 'le lieu', evenement: "l'événement", note: 'la note', zone: 'la zone',
+};
+const itemName = (item) => `${ITEM_NAMES[item.type]}${item.title ? ` « ${item.title} »` : ''}`;
+
+function queueOp(op) {
+  if (!state.canEdit || sync.dead) return;
+  pushOp(sync.pending, op);
+  if (!sync.firstPendingAt) sync.firstPendingAt = Date.now();
+  scheduleSave();
+  renderSync();
 }
 
-async function flushPatch() {
-  clearTimeout(patchTimer);
-  if (!pendingPatch) return;
-  const { id, fields } = pendingPatch;
-  pendingPatch = null;
+function log(action) {
+  const entry = { id: newId(), user: session.name, action, at: Date.now() };
+  state.activity.push(entry);
+  queueOp({ k: 'log', entry });
+  if (!$('#journal').hidden) $('#journal-list').prepend(journalEntry(entry));
+}
+
+function scheduleSave(delay = 2500) {
+  clearTimeout(sync.timer);
+  // Pendant une longue série de modifications, on enregistre quand même toutes les 12 s.
+  const wait = Math.max(0, Math.min(delay, sync.firstPendingAt + 12000 - Date.now()));
+  sync.timer = setTimeout(save, wait);
+}
+
+async function save() {
+  if (sync.saving || !sync.pending.length || sync.dead) return;
+  sync.saving = true;
+  sync.version++;
+  const ops = sync.pending;
+  sync.pending = [];
+  sync.firstPendingAt = 0;
+  renderSync();
   try {
-    await api('PATCH', `/api/items/${id}`, fields);
+    const now = Date.now();
+    const { data, sha } = await updateJSON(PATHS.dossier(caseId), (current) => {
+      if (!current) throw Object.assign(new Error('Ce dossier a été supprimé.'), { deleted: true });
+      const doc = applyOps(current, ops);
+      doc.case.updated_at = now;
+      doc.case.updated_by = session.name;
+      return doc;
+    }, "Mise à jour d'un dossier");
+    sync.base = data;
+    sync.sha = sha;
+    sync.error = null;
+    sync.lastSaved = Date.now();
+    reconcile();
+    updateIndexEntry(data);
   } catch (err) {
-    toast(`Non enregistré : ${err.message}`, 'error');
+    sync.pending = ops.concat(sync.pending);
+    sync.firstPendingAt = Date.now();
+    if (err.deleted) { caseDeleted(); return; }
+    sync.error = err.message;
+    toast(`Enregistrement impossible : ${err.message} Nouvel essai dans 15 s.`, 'error');
+  } finally {
+    sync.saving = false;
+    renderSync();
+    if (sync.pending.length && !sync.dead) scheduleSave(sync.error ? 15000 : 2500);
+  }
+}
+
+/** Met à jour la fiche du dossier dans la liste (au plus toutes les 10 min, sauf changement d'intitulé/statut). */
+async function updateIndexEntry(doc) {
+  if (!sync.indexForce && Date.now() - sync.indexAt < 10 * 60 * 1000) return;
+  sync.indexForce = false;
+  sync.indexAt = Date.now();
+  const c = doc.case;
+  const count = doc.items.filter((i) => i.type !== 'zone').length;
+  try {
+    await updateIndex((index) => {
+      const entry = index.cases.find((e) => e.id === caseId);
+      if (entry) Object.assign(entry, { reference: c.reference, title: c.title, description: c.description, status: c.status, updated_at: c.updated_at, item_count: count });
+    });
+  } catch { /* la liste sera mise à jour au prochain enregistrement */ }
+}
+
+async function poll() {
+  if (document.hidden || sync.saving || sync.polling || sync.dead) return;
+  sync.polling = true;
+  const version = sync.version;
+  try {
+    const file = await readText(PATHS.dossier(caseId));
+    if (version !== sync.version || sync.saving) return;
+    if (!file) { caseDeleted(); return; }
+    if (file.sha && (file.sha === sync.sha || session.gh?.isSuperseded(PATHS.dossier(caseId), file.sha))) return;
+    const doc = await decryptJSON(session.key, file.text);
+    if (version !== sync.version || sync.saving) return;
+    if (!file.sha && JSON.stringify(doc) === JSON.stringify(sync.base)) return;
+    sync.base = doc;
+    sync.sha = file.sha;
+    if (reconcile() && doc.case.updated_by && doc.case.updated_by !== session.name) {
+      showRemoteNotice(doc.case.updated_by);
+    }
+  } catch { /* nouvel essai au prochain passage */ } finally {
+    sync.polling = false;
+  }
+}
+
+const sameFields = (a, b) => {
+  const ka = Object.keys(a);
+  return ka.length === Object.keys(b).length && ka.every((k) => a[k] === b[k]);
+};
+
+/**
+ * Aligne l'affichage sur « dernière version GitHub + nos modifications en attente »,
+ * sans toucher à ce que l'utilisateur est en train de déplacer ou de taper. Renvoie true si quelque chose a changé.
+ */
+function reconcile() {
+  const doc = applyOps(clone(sync.base), sync.pending);
+  let changed = false;
+  if (!sameFields(doc.case, state.case)) { state.case = doc.case; renderHeader(); changed = true; }
+  if (doc.activity.length !== state.activity.length || doc.activity.at(-1)?.id !== state.activity.at(-1)?.id) {
+    state.activity = doc.activity;
+    if (!$('#journal').hidden) renderJournal();
+  }
+  const typing = inspector.contains(document.activeElement) ? document.activeElement.dataset?.field : null;
+
+  const seenItems = new Set();
+  for (const incoming of doc.items) {
+    seenItems.add(incoming.id);
+    const local = state.items.get(incoming.id);
+    if (!local) { state.items.set(incoming.id, incoming); renderItem(incoming); changed = true; continue; }
+    if (state.dragging.has(incoming.id)) Object.assign(incoming, { x: local.x, y: local.y, z: local.z, w: local.w, h: local.h });
+    const selected = state.selection?.kind === 'item' && state.selection.id === incoming.id;
+    if (selected && typing) incoming[typing] = local[typing];
+    if (sameFields(local, incoming)) continue;
+    const contentChanged = Object.keys(incoming).some((k) => !['x', 'y', 'z'].includes(k) && local[k] !== incoming[k]);
+    Object.assign(local, incoming);
+    if (contentChanged) renderItem(local); else placeItem(local);
+    if (selected && contentChanged) refreshInspectorFields(local);
+    changed = true;
+  }
+  for (const id of [...state.items.keys()]) if (!seenItems.has(id)) { removeItemLocal(id); changed = true; }
+
+  const seenLinks = new Set();
+  for (const incoming of doc.links) {
+    seenLinks.add(incoming.id);
+    const local = state.links.get(incoming.id);
+    if (local && sameFields(local, incoming)) continue;
+    if (local) Object.assign(local, incoming); else state.links.set(incoming.id, incoming);
+    renderLink(state.links.get(incoming.id));
+    if (state.selection?.kind === 'link' && state.selection.id === incoming.id && !inspector.contains(document.activeElement)) renderInspector();
+    changed = true;
+  }
+  for (const id of [...state.links.keys()]) if (!seenLinks.has(id)) { removeLinkLocal(id); changed = true; }
+  if (changed) renderSidebarSoon();
+  return changed;
+}
+
+function renderSync() {
+  const el = $('#sync');
+  let text; let cls = '';
+  if (!state.canEdit) { text = 'Lecture seule'; cls = 'ro'; }
+  else if (sync.error) { text = 'Non enregistré — nouvel essai…'; cls = 'err'; }
+  else if (sync.saving) { text = 'Enregistrement…'; cls = 'busy'; }
+  else if (sync.pending.length) { text = 'Modifications en attente…'; cls = 'busy'; }
+  else if (sync.lastSaved) { text = 'Enregistré'; cls = 'ok'; }
+  else { text = 'À jour'; cls = 'ok'; }
+  el.textContent = text;
+  el.className = `sync ${cls}`;
+  el.title = state.canEdit ? 'Les modifications sont enregistrées sur GitHub automatiquement.' : 'Ajoutez un jeton GitHub dans les réglages (⚙) pour modifier ce dossier.';
+}
+
+let noticeTimer;
+function showRemoteNotice(name) {
+  const el = $('#sync');
+  el.textContent = `Mis à jour par ${name}`;
+  el.className = 'sync remote';
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(renderSync, 4000);
+}
+
+function caseDeleted() {
+  if (sync.dead) return;
+  sync.dead = true;
+  confirmDialog("Ce dossier a été supprimé.", { ok: 'Retour aux dossiers', title: 'Dossier supprimé' })
+    .then(() => { location.href = 'index.html'; });
+}
+
+/** Modification des champs d'un élément depuis le panneau. */
+function editItem(item, fields, { silent = false } = {}) {
+  queueOp({ k: 'item:set', id: item.id, fields });
+  if (!silent && !state.loggedEdit.has(item.id) && !sync.created?.has(item.id)) {
+    state.loggedEdit.add(item.id);
+    log(`a modifié ${itemName(item)}`);
   }
 }
 
@@ -536,20 +732,19 @@ function renderItemInspector(item) {
       item[field] = input.value;
       renderItem(item);
       if (field === 'title' || field === 'body') renderSidebarSoon();
-      queuePatch(item, { [field]: input.value });
+      editItem(item, { [field]: input.value });
     });
-    input.addEventListener('blur', flushPatch);
     form.append(h('label', { class: 'field' }, h('span', {}, label), input));
   }
 
   if (item.type === 'note' || item.type === 'zone') {
     const palette = item.type === 'note' ? NOTE_COLORS : ZONE_COLORS;
     form.append(h('div', { class: 'field' }, h('span', {}, 'Couleur'),
-      colorSwatches(palette, item.color || def.color, (name) => { item.color = name; renderItem(item); queuePatch(item, { color: name }); }, 'Couleur')));
+      colorSwatches(palette, item.color || def.color, (name) => { item.color = name; renderItem(item); editItem(item, { color: name }, { silent: true }); }, 'Couleur')));
   }
   if (item.type !== 'zone') {
     const range = h('input', { type: 'range', min: -15, max: 15, step: 0.5, value: item.rotation });
-    range.addEventListener('input', () => { item.rotation = Number(range.value); placeItem(item); queuePatch(item, { rotation: item.rotation }); });
+    range.addEventListener('input', () => { item.rotation = Number(range.value); placeItem(item); editItem(item, { rotation: item.rotation }, { silent: true }); });
     form.append(h('label', { class: 'field' }, h('span', {}, 'Inclinaison'), range));
   }
   content.push(form);
@@ -577,7 +772,7 @@ function imageField(item, label) {
   const setImage = (value) => {
     item.image = value;
     renderItem(item);
-    queuePatch(item, { image: value });
+    editItem(item, { image: value });
     drawPreview();
   };
   const drawPreview = () => {
@@ -612,7 +807,7 @@ function renderLinkInspector(link) {
   const save = (fields) => {
     Object.assign(link, fields);
     renderLink(link);
-    api('PATCH', `/api/links/${link.id}`, fields).catch((err) => toast(`Non enregistré : ${err.message}`, 'error'));
+    queueOp({ k: 'link:set', id: link.id, fields });
   };
   const content = [panelHead('Fil', `${itemLabel(a)} ↔ ${itemLabel(b)}`)];
 
@@ -660,7 +855,7 @@ function refreshInspectorFields(item) {
   if (!state.canEdit) { renderInspector(); return; }
   for (const input of inspector.querySelectorAll('[data-field]')) {
     const f = input.dataset.field;
-    if (document.activeElement !== input && !(pendingPatch?.id === item.id && f in pendingPatch.fields)) input.value = item[f];
+    if (document.activeElement !== input) input.value = item[f];
   }
 }
 
@@ -704,32 +899,37 @@ function viewCenter() {
   return toWorld(r.left + r.width / 2, r.top + r.height / 2);
 }
 
-async function addItem(type, at, extra = {}) {
-  if (!state.canEdit) return;
+function addItem(type, at, extra = {}) {
+  if (!state.canEdit) return null;
   const def = TYPES[type];
   const p = at || viewCenter();
   const w = def.width;
-  const body = {
+  const top = maxZ() + 1;
+  const item = {
+    id: newId(),
     type,
+    number: nextNumber({ items: [...state.items.values()] }, type),
+    title: '', subtitle: '', body: '', image: '', event_date: '',
+    color: def.color || '',
     x: Math.round(p.x - w / 2),
     y: Math.round(p.y - (type === 'zone' ? def.height / 2 : 40)),
     w,
     h: def.height || 0,
     rotation: type === 'zone' ? 0 : Math.round((Math.random() * 6 - 3) * 2) / 2,
-    color: def.color || '',
+    z: type === 'zone' ? -top : top,
+    created_by: session.name,
+    created_at: Date.now(),
     ...extra,
   };
-  try {
-    const { item } = await api('POST', `/api/cases/${caseId}/items`, body);
-    state.items.set(item.id, item);
-    renderItem(item);
-    renderSidebar();
-    select({ kind: 'item', id: item.id });
-    if (!extra.image) inspector.querySelector('input:not([type=range]):not([type=file]), textarea')?.focus();
-    return item;
-  } catch (err) {
-    toast(err.message, 'error');
-  }
+  state.items.set(item.id, item);
+  sync.created.add(item.id);
+  queueOp({ k: 'item:add', item: { ...item } });
+  log(`a ajouté ${ITEM_NAMES[type]}`);
+  renderItem(item);
+  renderSidebar();
+  select({ kind: 'item', id: item.id });
+  if (!extra.image) inspector.querySelector('input:not([type=range]):not([type=file]), textarea')?.focus();
+  return item;
 }
 
 async function deleteItem(item) {
@@ -738,38 +938,33 @@ async function deleteItem(item) {
     `Retirer « ${itemLabel(item)} » du tableau ?${n ? ` ${n} fil${n > 1 ? 's' : ''} ser${n > 1 ? 'ont' : 'a'} coupé${n > 1 ? 's' : ''}.` : ''}`,
     { ok: 'Retirer', danger: true, title: 'Retirer un élément' });
   if (!ok) return;
-  try {
-    if (pendingPatch?.id === item.id) { clearTimeout(patchTimer); pendingPatch = null; }
-    await api('DELETE', `/api/items/${item.id}`);
-    removeItemLocal(item.id);
-  } catch (err) { toast(err.message, 'error'); }
+  queueOp({ k: 'item:del', id: item.id });
+  log(`a retiré ${itemName(item)}`);
+  removeItemLocal(item.id);
 }
 
-async function createLink(fromId, toId) {
+function createLink(fromId, toId) {
   const existing = [...state.links.values()].find((l) => (l.from_id === fromId && l.to_id === toId) || (l.from_id === toId && l.to_id === fromId));
   if (existing) { toast('Ces deux éléments sont déjà reliés.'); select({ kind: 'link', id: existing.id }); return; }
-  try {
-    const { link } = await api('POST', `/api/cases/${caseId}/links`, { from_id: fromId, to_id: toId });
-    state.links.set(link.id, link);
-    renderLink(link);
-    select({ kind: 'link', id: link.id });
-  } catch (err) { toast(err.message, 'error'); }
+  const link = { id: newId(), from_id: fromId, to_id: toId, label: '', arrow: 'none', style: 'solid', color: 'rouge', created_at: Date.now() };
+  state.links.set(link.id, link);
+  queueOp({ k: 'link:add', link: { ...link } });
+  log(`a relié ${itemName(state.items.get(fromId))} à ${itemName(state.items.get(toId))}`);
+  renderLink(link);
+  select({ kind: 'link', id: link.id });
 }
 
-async function deleteLink(link) {
-  try {
-    await api('DELETE', `/api/links/${link.id}`);
-    removeLinkLocal(link.id);
-  } catch (err) { toast(err.message, 'error'); }
+function deleteLink(link) {
+  const a = state.items.get(link.from_id);
+  const b = state.items.get(link.to_id);
+  queueOp({ k: 'link:del', id: link.id });
+  if (a && b) log(`a coupé le fil entre ${itemName(a)} et ${itemName(b)}`);
+  removeLinkLocal(link.id);
 }
 
-async function commitPositions(ids) {
-  const items = ids.map((id) => state.items.get(id)).filter(Boolean).map((i) => ({ id: i.id, x: Math.round(i.x), y: Math.round(i.y), z: i.z }));
-  try {
-    await api('POST', `/api/cases/${caseId}/positions`, { items });
-  } catch (err) {
-    toast(`Déplacement non enregistré : ${err.message}`, 'error');
-  }
+function commitPositions(ids) {
+  const list = ids.map((id) => state.items.get(id)).filter(Boolean).map((i) => ({ id: i.id, x: Math.round(i.x), y: Math.round(i.y), z: i.z }));
+  queueOp({ k: 'items:pos', list });
 }
 
 function setLinkMode(id) {
@@ -806,27 +1001,49 @@ async function editCase() {
       h('label', { class: 'field' }, h('span', {}, 'Résumé des faits'), f.description),
       error,
       h('div', { class: 'modal-actions spread' },
-        state.me.role === 'admin' ? h('button', { type: 'button', class: 'btn btn-danger', onclick: async () => {
+        h('button', { type: 'button', class: 'btn btn-danger', onclick: async () => {
           close();
           if (!await confirmDialog(`Supprimer définitivement le dossier « ${c.title} » et tout son tableau ? Cette action est irréversible.`, { ok: 'Supprimer le dossier', danger: true, title: 'Supprimer le dossier' })) return;
-          try { await api('DELETE', `/api/cases/${caseId}`); location.href = '/'; } catch (err) { toast(err.message, 'error'); }
-        } }, 'Supprimer…') : h('span'),
+          deleteCase();
+        } }, 'Supprimer…'),
         h('div', { class: 'modal-actions' },
           h('button', { type: 'button', class: 'btn', onclick: () => close() }, 'Annuler'),
           h('button', { type: 'submit', class: 'btn btn-primary' }, 'Enregistrer'))));
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      try {
-        const { case: updated } = await api('PATCH', `/api/cases/${caseId}`, {
-          title: f.title.value, reference: f.reference.value, status: f.status.value, description: f.description.value,
-        });
-        state.case = updated;
+      const fields = {
+        title: f.title.value.trim().slice(0, 150),
+        reference: f.reference.value.trim().slice(0, 40),
+        status: f.status.value,
+        description: f.description.value.trim().slice(0, 2000),
+      };
+      if (!fields.title || !fields.reference) { error.textContent = "L'intitulé et la référence sont obligatoires."; return; }
+      const changes = Object.keys(fields).filter((k) => fields[k] !== c[k]);
+      if (changes.length) {
+        Object.assign(state.case, fields);
+        queueOp({ k: 'case:set', fields });
+        log(changes.includes('status') ? `a passé le dossier au statut « ${STATUS_LABELS[fields.status]} »` : 'a modifié la fiche du dossier');
+        sync.indexForce = true;
         renderHeader();
-        close();
-      } catch (err) { error.textContent = err.message; }
+      }
+      close();
     });
     return form;
   });
+}
+
+async function deleteCase() {
+  sync.dead = true;
+  clearTimeout(sync.timer);
+  try {
+    await updateIndex((index) => { index.cases = index.cases.filter((e) => e.id !== caseId); });
+    const file = await session.gh.get(PATHS.dossier(caseId));
+    if (file) await session.gh.remove(PATHS.dossier(caseId), file.sha, "Suppression d'un dossier");
+    location.href = 'index.html';
+  } catch (err) {
+    sync.dead = false;
+    toast(`Suppression impossible : ${err.message}`, 'error');
+  }
 }
 
 // ── view (pan & zoom) ─────────────────────────────────────────────────
@@ -919,18 +1136,6 @@ function focusItem(id) {
 // ── pointer interactions ──────────────────────────────────────────────
 const pointers = new Map();
 let gesture = null;
-let movingTimer = null;
-let movingIds = [];
-
-function sendMoving(ids) {
-  movingIds = ids;
-  if (movingTimer) return;
-  movingTimer = setTimeout(() => {
-    movingTimer = null;
-    wsSend({ t: 'moving', items: movingIds.map((id) => state.items.get(id)).filter(Boolean).map((i) => ({ id: i.id, x: Math.round(i.x), y: Math.round(i.y) })) });
-  }, 60);
-}
-
 function itemsInsideZone(zone) {
   const ids = [];
   for (const i of state.items.values()) {
@@ -965,15 +1170,16 @@ viewport.addEventListener('pointerdown', (e) => {
   if (e.button === 1) {
     gesture = { type: 'pan', start, view: { ...state.view }, moved: false };
   } else if (pin && state.canEdit) {
-    const id = Number(pin.dataset.id);
+    const id = pin.dataset.id;
     gesture = { type: 'link', from: id, start, moved: false };
   } else if (handle && state.canEdit) {
-    const id = Number(handle.closest('.card').dataset.id);
+    const id = handle.closest('.card').dataset.id;
     const item = state.items.get(id);
     select({ kind: 'item', id });
     gesture = { type: 'resize', id, start: toWorld(e.clientX, e.clientY), orig: { w: item.w, h: item.h } };
+    state.dragging.add(id);
   } else if (card || pin) {
-    const id = Number((card || pin).dataset.id);
+    const id = (card || pin).dataset.id;
     if (state.linkFrom !== null) {
       const from = state.linkFrom;
       setLinkMode(null);
@@ -989,7 +1195,7 @@ viewport.addEventListener('pointerdown', (e) => {
       orig: new Map(ids.map((i) => [i, { x: state.items.get(i).x, y: state.items.get(i).y }])),
     };
   } else if (linkG) {
-    select({ kind: 'link', id: Number(linkG.dataset.link) });
+    select({ kind: 'link', id: linkG.dataset.link });
     gesture = { type: 'tap' };
   } else {
     if (state.linkFrom !== null) setLinkMode(null);
@@ -1044,7 +1250,6 @@ viewport.addEventListener('pointermove', (e) => {
         item.y = clamp(o.y + dy, -150, state.board.height - 40);
         placeItem(item);
       }
-      sendMoving(gesture.ids);
       break;
     }
     case 'link': {
@@ -1076,7 +1281,7 @@ function linkTargetAt(clientX, clientY) {
   const els = document.elementsFromPoint(clientX, clientY);
   for (const el of els) {
     const hit = el.closest?.('.pin, .card:not(.card-zone)');
-    if (hit) return Number(hit.dataset.id);
+    if (hit) return hit.dataset.id;
   }
   return null;
 }
@@ -1098,7 +1303,8 @@ function endGesture(e) {
     if (target && target !== g.from) createLink(g.from, target);
   } else if (g.type === 'resize' && g.moved) {
     const item = state.items.get(g.id);
-    api('PATCH', `/api/items/${item.id}`, { w: item.w, h: item.h }).catch((err) => toast(err.message, 'error'));
+    state.dragging.delete(g.id);
+    editItem(item, { w: item.w, h: item.h }, { silent: true });
   } else if (g.type === 'pan' && g.background && !g.moved) {
     select(null);
   }
@@ -1126,7 +1332,7 @@ viewport.addEventListener('wheel', (e) => {
 
 viewport.addEventListener('dblclick', (e) => {
   const card = e.target.closest('.card');
-  if (card && !card.classList.contains('card-zone')) { openFiche(state.items.get(Number(card.dataset.id))); return; }
+  if (card && !card.classList.contains('card-zone')) { openFiche(state.items.get(card.dataset.id)); return; }
   if (!state.canEdit || e.target.closest('[data-link], .pin')) return;
   openAddMenu(e.clientX, e.clientY, toWorld(e.clientX, e.clientY));
 });
@@ -1207,141 +1413,25 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === '0') fitAll();
 });
 
-// ── realtime ──────────────────────────────────────────────────────────
-let ws = null;
-let wsRetry = 0;
-let wsDead = false;
-
-function connect() {
-  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?case=${caseId}`);
-  ws.addEventListener('open', () => {
-    $('#conn').hidden = true;
-    if (wsRetry > 0) resync();
-    wsRetry = 0;
-  });
-  ws.addEventListener('message', (e) => {
-    let msg;
-    try { msg = JSON.parse(e.data); } catch { return; }
-    onMessage(msg);
-  });
-  ws.addEventListener('close', () => {
-    if (wsDead) return;
-    $('#conn').hidden = false;
-    setTimeout(connect, Math.min(10000, 800 * 2 ** wsRetry++));
-  });
-}
-
-function wsSend(msg) {
-  if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
-}
-
-async function resync() {
-  try {
-    await flushPatch();
-    load(await api('GET', `/api/cases/${caseId}`));
-  } catch (err) {
-    if (err.status === 404) caseDeleted();
-    else if (err.status === 401) location.href = `/?next=${encodeURIComponent(location.pathname)}`;
-  }
-}
-
-function caseDeleted() {
-  wsDead = true;
-  ws?.close();
-  confirmDialog('Ce dossier vient d\'être supprimé par un administrateur.', { ok: 'Retour aux dossiers', title: 'Dossier supprimé' })
-    .then(() => { location.href = '/'; });
-}
-
-function onMessage(msg) {
-  const mine = msg.origin && msg.origin === CLIENT_ID;
-  switch (msg.t) {
-    case 'item': {
-      if (mine) return;
-      const incoming = msg.item;
-      const local = state.items.get(incoming.id);
-      if (local && state.dragging.has(incoming.id)) Object.assign(incoming, { x: local.x, y: local.y, z: local.z });
-      if (pendingPatch?.id === incoming.id) Object.assign(incoming, pendingPatch.fields);
-      const typing = inspector.contains(document.activeElement) && state.selection?.kind === 'item' && state.selection.id === incoming.id;
-      if (local) {
-        // Keep the same object so the open inspector keeps editing the live item.
-        const focusField = typing ? document.activeElement.dataset?.field : null;
-        const keep = focusField ? local[focusField] : undefined;
-        Object.assign(local, incoming);
-        if (focusField) local[focusField] = keep;
-        renderItem(local);
-        if (state.selection?.kind === 'item' && state.selection.id === local.id) refreshInspectorFields(local);
-      } else {
-        state.items.set(incoming.id, incoming);
-        renderItem(incoming);
-      }
-      renderSidebarSoon();
-      break;
-    }
-    case 'item:del':
-      if (!mine) removeItemLocal(msg.id);
-      break;
-    case 'positions':
-    case 'moving':
-      if (mine) return;
-      for (const p of msg.items) {
-        const item = state.items.get(p.id);
-        if (!item || state.dragging.has(p.id)) continue;
-        item.x = p.x; item.y = p.y;
-        if (p.z !== undefined && p.z !== null) item.z = p.z;
-        placeItem(item);
-        const el = cardEls.get(p.id);
-        if (el) {
-          el.classList.toggle('remote-moving', msg.t === 'moving');
-          if (msg.t === 'moving') el.dataset.mover = msg.user;
-        }
-      }
-      break;
-    case 'link': {
-      if (mine) return;
-      const existing = state.links.get(msg.link.id);
-      if (existing) Object.assign(existing, msg.link); else state.links.set(msg.link.id, msg.link);
-      renderLink(state.links.get(msg.link.id));
-      if (state.selection?.kind === 'link' && state.selection.id === msg.link.id && !inspector.contains(document.activeElement)) renderInspector();
-      break;
-    }
-    case 'link:del':
-      if (!mine) removeLinkLocal(msg.id);
-      break;
-    case 'case':
-      state.case = msg.case;
-      renderHeader();
-      break;
-    case 'case:del':
-      caseDeleted();
-      break;
-    case 'presence':
-      renderPresence(msg.users);
-      break;
-    case 'activity':
-      if (!$('#journal').hidden) $('#journal-list').prepend(journalEntry(msg.entry));
-      break;
-    default:
-  }
-}
-
 // ── journal ───────────────────────────────────────────────────────────
 function journalEntry(entry) {
   return h('li', {},
-    h('p', {}, h('strong', {}, entry.user_name), ` ${entry.action}`),
-    h('time', { datetime: new Date(entry.created_at).toISOString(), title: new Date(entry.created_at).toLocaleString('fr-FR') }, timeAgo(entry.created_at)));
+    h('p', {}, h('strong', {}, entry.user), ` ${entry.action}`),
+    h('time', { datetime: new Date(entry.at).toISOString(), title: new Date(entry.at).toLocaleString('fr-FR') }, timeAgo(entry.at)));
 }
 
-async function openJournal() {
+function renderJournal() {
+  const list = $('#journal-list');
+  const entries = [...state.activity].reverse();
+  list.replaceChildren(...(entries.length ? entries.map(journalEntry) : [h('li', { class: 'muted' }, 'Aucune activité.')]));
+}
+
+function openJournal() {
   const panel = $('#journal');
   if (!panel.hidden) { panel.hidden = true; return; }
   select(null);
   panel.hidden = false;
-  const list = $('#journal-list');
-  list.replaceChildren(h('li', { class: 'muted' }, 'Chargement…'));
-  try {
-    const { activity } = await api('GET', `/api/cases/${caseId}/activity`);
-    list.replaceChildren(...(activity.length ? activity.map(journalEntry) : [h('li', { class: 'muted' }, 'Aucune activité.')]));
-  } catch (err) { list.replaceChildren(h('li', { class: 'form-error' }, err.message)); }
+  renderJournal();
 }
 
 // ── misc UI ───────────────────────────────────────────────────────────
@@ -1372,6 +1462,16 @@ $('#btn-add').addEventListener('click', (e) => {
   openAddMenu(r.right - 220, r.bottom + 6, null);
 });
 window.addEventListener('resize', closeMenu);
-window.addEventListener('beforeunload', () => { flushPatch(); });
+$('#btn-settings').addEventListener('click', () => settingsDialog(() => {
+  if (!sync.pending.length && !sync.saving) location.reload();
+  else toast('Rechargez la page une fois vos modifications enregistrées pour appliquer les réglages.');
+}));
+$('#sync').addEventListener('click', () => { if (!state.canEdit) settingsDialog(() => location.reload()); });
+window.addEventListener('beforeunload', (e) => {
+  if (!sync.pending.length && !sync.saving) return;
+  save();
+  e.preventDefault();
+  e.returnValue = '';
+});
 
 init();

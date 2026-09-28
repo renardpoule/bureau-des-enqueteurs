@@ -1,84 +1,57 @@
 # Bureau des enquêteurs
 
-Tableau d'enquête collaboratif pour le **comité disciplinaire** d'un département (RP Garry's Mod).
+Tableau d'enquête collaboratif pour le **comité disciplinaire** (RP Garry's Mod), hébergé sur **GitHub Pages**, comme le site *Front des Cendres* (`lastwar`).
 
-Chaque dossier a son propre tableau en bois gris, façon film policier. On y épingle des photos, des témoignages, des pièces à conviction, des notes… On les relie avec des fils rouges, et tout le monde voit les changements en direct.
+Chaque dossier a son propre tableau en bois gris, façon film policier. On y épingle des photos, des témoignages, des pièces à conviction et des notes, puis on les relie avec des fils rouges.
+
+- Aucun serveur à installer : le site est statique, et les dossiers sont enregistrés dans le dossier `data/` de ce dépôt via l'API GitHub.
+- **Les dossiers sont chiffrés** (AES-256) avec le **code du comité**. Le dépôt est public, mais sans le code, personne ne peut lire les dossiers ni voir les images.
+
+## Mise en route (une seule fois)
+
+1. **Activer GitHub Pages** : sur GitHub, *Settings → Pages → Build and deployment*, choisir *Deploy from a branch*, la branche `main` et le dossier `/ (root)`, puis *Save*.
+   Le site sera en ligne d'ici une à deux minutes sur <https://renardpoule.github.io/bureau-des-enqueteurs/>.
+2. **Créer un jeton GitHub** (c'est lui qui permet d'enregistrer) : <https://github.com/settings/personal-access-tokens/new>
+   - *Repository access* : **Only select repositories** → `bureau-des-enqueteurs`
+   - *Permissions → Repository permissions → Contents* : **Read and write**
+   - Copier le jeton (`github_pat_…`).
+3. **Ouvrir le site**. Il affiche « Installer le bureau » :
+   - votre nom d'enquêteur ;
+   - le **code du comité** (8 caractères minimum). Notez-le bien : sans lui, les dossiers sont illisibles ;
+   - le compte et le dépôt, déjà remplis automatiquement, puis le jeton.
+4. Dans la liste des dossiers, cliquez sur **« Créer un dossier d'exemple »** pour découvrir le tableau.
+
+## Pour les membres du comité
+
+- Donnez-leur l'adresse du site et le **code du comité**. Ils se connectent avec leur nom d'enquêteur (celui qui apparaît dans le journal) et ce code.
+- Sans jeton, ils sont en **lecture seule**. Pour qu'un membre puisse modifier, il faut coller un jeton dans ⚙ **Réglages** :
+  - soit un jeton que vous lui donnez (le même que le vôtre, ou un deuxième créé de la même façon) ;
+  - soit son propre jeton, s'il a un compte GitHub et que vous l'avez ajouté comme collaborateur du dépôt.
+- Le jeton reste dans le navigateur de chacun, chiffré. Il n'est jamais envoyé ailleurs que sur GitHub.
+- Quand un membre quitte le comité : changez le code dans ⚙ Réglages, puis supprimez ou régénérez le jeton qu'il utilisait.
 
 ## Fonctionnalités
 
-- **Un tableau par dossier** : panoramique à la souris ou au doigt, zoom à la molette ou par pincement, bouton « tout afficher ».
-- **Des éléments pour chaque type d'information** :
-  | Type | Apparence sur le tableau |
+- **Un tableau par dossier** : on se déplace en glissant le fond, on zoome à la molette ou par pincement, et le bouton « tout afficher » recadre sur l'ensemble.
+- **Types d'éléments** :
+
+  | Type | Apparence |
   |---|---|
   | Personne (suspect, témoin, victime…) | Polaroïd avec tampon de statut |
   | Témoignage | Feuille lignée : témoin, date, déposition |
-  | Pièce à conviction | Sachet de scellé numéroté (P-01, P-02…) avec photo |
+  | Pièce à conviction | Sachet de scellé numéroté (P-01, P-02…) |
   | Document / rapport | Feuille dactylographiée |
   | Photo | Polaroïd avec légende manuscrite |
   | Lieu, Événement (chronologie) | Fiches bristol |
   | Note | Post-it de couleur |
-  | Zone | Cadre délimité par du ruban, pour regrouper (« Suspects », « Pièces »…) |
-- **Le classeur** (colonne de gauche) range tout par catégorie : personnes, témoignages, pièces à conviction, etc. Un clic sur un élément centre le tableau dessus, et le bouton « + » d'une catégorie en ajoute un.
-- **Fils entre les éléments** : on tire la punaise rouge d'un élément vers un autre. Chaque fil peut avoir une légende (« a menti », « complice ? »), une flèche (→, ←, ↔), une couleur, et être soit « établi » (fil tendu) soit « hypothèse » (pointillés).
-- **Déplacement libre** : on glisse les éléments où on veut, et une zone déplacée emporte les éléments épinglés dedans. On peut aussi redimensionner et incliner.
-- **Images** : envoi de fichier, lien http(s), **copier-coller d'une capture d'écran (Ctrl+V)** ou glisser-déposer directement sur le tableau.
-- **Temps réel** : on voit les autres enquêteurs connectés et leurs modifications au moment où ils les font, déplacements compris.
-- **Journal** du dossier : qui a ajouté, modifié, relié ou retiré quoi, et quand.
-- **Comptes et rôles** :
-  - *Administrateur* : gère les membres et peut supprimer un dossier.
-  - *Enquêteur* : crée et modifie les dossiers et les tableaux.
-  - *Observateur* : lecture seule.
+  | Zone | Cadre à ruban pour regrouper (« Suspects », « Pièces »…) |
 
-## Installation
-
-Il faut **Node.js 22.13 ou plus récent** (la base SQLite est intégrée à Node, il n'y a rien d'autre à installer).
-
-```bash
-npm install
-ADMIN_PASSWORD='un-mot-de-passe-solide' npm start
-```
-
-Le site est ensuite disponible sur <http://localhost:3000>.
-
-Au premier démarrage, un compte administrateur `admin` est créé. Si `ADMIN_PASSWORD` n'est pas défini, un mot de passe aléatoire est affiché dans la console. Pensez à le changer depuis le site (bouton « Mot de passe »), puis ajoutez les membres du comité avec le bouton « Membres ».
-
-Pour essayer avec un dossier d'exemple déjà rempli :
-
-```bash
-npm run demo
-```
-
-### Variables d'environnement
-
-| Variable | Rôle | Défaut |
-|---|---|---|
-| `PORT` | Port HTTP | `3000` |
-| `HOST` | Adresse d'écoute | `0.0.0.0` |
-| `DATA_DIR` | Dossier de la base et des images envoyées | `./data` |
-| `ADMIN_USER` / `ADMIN_PASSWORD` | Premier compte administrateur (utilisés seulement quand la base est vide) | `admin` / aléatoire |
-| `TRUST_PROXY` | À mettre à `1` derrière un reverse proxy (nginx, Caddy…) | — |
-| `COOKIE_SECURE` | À mettre à `1` si le site est servi en HTTPS | — |
-
-Toutes les données (base `bureau.db` et dossier `uploads/`) sont dans `DATA_DIR`. **C'est ce dossier qu'il faut sauvegarder.**
-
-## Mise en ligne
-
-N'importe quel VPS avec Node.js convient. Exemple avec nginx en HTTPS : pensez à transmettre les en-têtes WebSocket, sinon le temps réel ne fonctionne pas.
-
-```nginx
-location / {
-    proxy_pass http://127.0.0.1:3000;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    client_max_body_size 12m;
-}
-```
-
-Lancez ensuite le serveur avec `TRUST_PROXY=1 COOKIE_SECURE=1 npm start`, idéalement sous `pm2` ou un service systemd.
+- **Classeur** à gauche : les éléments sont rangés par catégorie. Un clic centre le tableau sur l'élément, et le bouton « + » en ajoute un.
+- **Fils** : on tire la punaise rouge d'un élément vers un autre. Chaque fil peut avoir une légende, une flèche (→ ← ↔), une couleur, et être « établi » (fil plein) ou « hypothèse » (pointillés).
+- **Déplacement libre**, redimensionnement et inclinaison des éléments. Une zone déplacée emporte les éléments épinglés dedans.
+- **Images** : envoi de fichier, lien http(s), **copier-coller d'une capture d'écran (Ctrl+V)** ou glisser-déposer. Les images sont réduites (1600 px maximum) puis chiffrées avant l'envoi.
+- **Travail à plusieurs** : les modifications sont enregistrées automatiquement toutes les quelques secondes. Le tableau se met à jour avec celles des autres toutes les 15 secondes. Si deux personnes modifient en même temps, les deux modifications sont conservées.
+- **Journal** du dossier : qui a ajouté, modifié, relié ou retiré quoi.
 
 ## Raccourcis sur le tableau
 
@@ -86,20 +59,34 @@ Lancez ensuite le serveur avec `TRUST_PROXY=1 COOKIE_SECURE=1 npm start`, idéal
 |---|---|
 | Se déplacer | Glisser le fond du tableau (ou clic molette) |
 | Zoomer | Molette, pincement, ou touches `+` / `-` |
-| Tout afficher | Touche `0` ou clic sur le pourcentage de zoom |
-| Ajouter un élément | Double-clic ou clic droit sur le bois, bouton « + Ajouter », ou « + » dans le classeur |
-| Relier deux éléments | Tirer la punaise rouge vers l'autre élément (ou « Relier à… » dans le panneau) |
+| Tout afficher | Touche `0` ou clic sur le pourcentage |
+| Ajouter | Double-clic ou clic droit sur le bois, « + Ajouter », ou « + » dans le classeur |
+| Relier | Tirer la punaise rouge vers l'autre élément (ou « Relier à… ») |
 | Lire une fiche en grand | Double-clic sur l'élément |
 | Supprimer la sélection | `Suppr` |
-| Désélectionner | `Échap` |
+
+## Limites à connaître
+
+- Chaque enregistrement crée un commit dans le dépôt. C'est normal : c'est ce qui sert de base de données.
+- Sans jeton (lecture seule), les nouveautés apparaissent après la republication de GitHub Pages, soit une à deux minutes.
+- Le chiffrement protège le contenu, mais pas les métadonnées : on peut voir sur GitHub *quand* le bureau est modifié, et combien de dossiers il contient.
 
 ## Développement
 
+Le site est en HTML/CSS/JavaScript natif, sans étape de build. Pour le tester en local :
+
 ```bash
-npm run dev   # redémarre le serveur à chaque modification
-npm test      # tests de l'API
+python3 -m http.server 8000   # puis http://localhost:8000
+npm test                      # tests de la fusion des modifications et du chiffrement
 ```
 
-- `server/` : Express, SQLite (`node:sqlite`), WebSocket (`ws`) et envoi d'images (`multer`).
-- `public/` : front-end en JavaScript natif (modules ES), sans étape de build.
-- Les polices (Special Elite, Courier Prime, Caveat, Permanent Marker, Inter) sont incluses dans `public/fonts`, sous licences libres OFL / Apache 2.0.
+Organisation des fichiers :
+
+- `js/board.js` : le tableau (rendu, glisser-déposer, fils, synchronisation) ;
+- `js/model.js` : les opérations et leur fusion ;
+- `js/session.js` : la connexion et les fichiers chiffrés ;
+- `js/github.js` : l'API GitHub ;
+- `js/crypto.js` : le chiffrement.
+- `data/` : créé à l'installation. Il contient `acces.json` (la clé des dossiers, chiffrée par le code), `index.json`, `dossiers/` et `images/`.
+
+Les polices incluses (Special Elite, Courier Prime, Caveat, Permanent Marker, Inter) sont sous licences libres OFL / Apache 2.0.
