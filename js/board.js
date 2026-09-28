@@ -259,13 +259,13 @@ function buildCard(item) {
       return h('div', { class: 'card card-zone', dataset: { id: item.id }, style: { '--zone': ZONE_COLORS[item.color] || ZONE_COLORS.blanc } },
         h('div', { class: 'zone-tape' }, item.title || 'Zone'),
         item.body && h('div', { class: 'zone-sub' }, item.body),
-        state.canEdit && h('div', { class: 'resize-handle', title: 'Redimensionner' }));
+        state.canEdit && h('div', { class: 'resize-handle', title: 'Tirer pour agrandir · double-clic : hauteur automatique' }));
     default:
       inner = h('div', {}, item.title);
   }
   return h('div', { class: `card card-${t}`, dataset: { id: item.id } },
     inner,
-    state.canEdit && h('div', { class: 'resize-handle', title: 'Redimensionner' }));
+    state.canEdit && h('div', { class: 'resize-handle', title: 'Tirer pour agrandir · double-clic : hauteur automatique' }));
 }
 
 function renderItem(item) {
@@ -289,12 +289,8 @@ function renderItem(item) {
     pinEls.set(item.id, pin);
   }
   placeItem(item);
-  requestAnimationFrame(() => markOverflow(el));
 }
 
-function markOverflow(el) {
-  for (const c of el.querySelectorAll('.clip')) c.classList.toggle('overflowing', c.scrollHeight > c.clientHeight + 2);
-}
 
 function placeItem(item) {
   const el = cardEls.get(item.id);
@@ -306,6 +302,9 @@ function placeItem(item) {
     el.style.height = `${item.h || 400}px`;
     el.style.transform = `translate(${item.x}px, ${item.y}px)`;
   } else {
+    // Hauteur choisie à la poignée = hauteur minimale : le contenu n'est jamais coupé.
+    const minH = item.h ? `${item.h}px` : '';
+    if (el.style.minHeight !== minH) { el.style.minHeight = minH; el.classList.toggle('sized', Boolean(item.h)); }
     el.style.zIndex = String(Math.max(1, item.z));
     el.style.transform = `translate(${item.x}px, ${item.y}px)${item.rotation ? ` rotate(${item.rotation}deg)` : ''}`;
   }
@@ -822,7 +821,7 @@ function renderLinkInspector(link) {
     return;
   }
 
-  const label = h('input', { type: 'text', placeholder: 'Ex. : a vu, complice, a menti…', maxlength: 120 });
+  const label = h('input', { type: 'text', placeholder: 'Ex. : a vu, complice, a menti…' });
   label.value = link.label;
   let labelTimer;
   label.addEventListener('input', () => { clearTimeout(labelTimer); labelTimer = setTimeout(() => save({ label: label.value }), 400); });
@@ -987,8 +986,8 @@ async function editCase() {
   const c = state.case;
   await modal((close) => {
     const f = {
-      title: h('input', { type: 'text', value: c.title, maxlength: 150, autofocus: true }),
-      reference: h('input', { type: 'text', value: c.reference, maxlength: 40 }),
+      title: h('input', { type: 'text', value: c.title, autofocus: true }),
+      reference: h('input', { type: 'text', value: c.reference }),
       status: h('select', {}, Object.entries(STATUS_LABELS).map(([v, l]) => h('option', { value: v, selected: v === c.status }, l))),
       description: h('textarea', { rows: 5 }),
     };
@@ -1014,10 +1013,10 @@ async function editCase() {
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const fields = {
-        title: f.title.value.trim().slice(0, 150),
-        reference: f.reference.value.trim().slice(0, 40),
+        title: f.title.value.trim(),
+        reference: f.reference.value.trim(),
         status: f.status.value,
-        description: f.description.value.trim().slice(0, 2000),
+        description: f.description.value.trim(),
       };
       if (!fields.title || !fields.reference) { error.textContent = "L'intitulé et la référence sont obligatoires."; return; }
       const changes = Object.keys(fields).filter((k) => fields[k] !== c[k]);
@@ -1191,7 +1190,8 @@ viewport.addEventListener('pointerdown', (e) => {
     const id = handle.closest('.card').dataset.id;
     const item = state.items.get(id);
     select({ kind: 'item', id });
-    gesture = { type: 'resize', id, start: toWorld(e.clientX, e.clientY), orig: { w: item.w, h: item.h } };
+    const shownH = item.type === 'zone' ? item.h : Math.max(item.h || 0, cardEls.get(id)?.offsetHeight || 0);
+    gesture = { type: 'resize', id, start: toWorld(e.clientX, e.clientY), orig: { w: item.w, h: shownH } };
     state.dragging.add(id);
   } else if (card || pin) {
     const id = (card || pin).dataset.id;
@@ -1280,8 +1280,9 @@ viewport.addEventListener('pointermove', (e) => {
     case 'resize': {
       const item = state.items.get(gesture.id);
       const p = toWorld(e.clientX, e.clientY);
-      item.w = clamp(Math.round(gesture.orig.w + p.x - gesture.start.x), item.type === 'zone' ? 200 : 140, item.type === 'zone' ? 3000 : 900);
-      if (item.type === 'zone') item.h = clamp(Math.round(gesture.orig.h + p.y - gesture.start.y), 150, 3000);
+      // Pas de limite : on agrandit tant qu'on tire (dans les limites du tableau).
+      item.w = clamp(Math.round(gesture.orig.w + p.x - gesture.start.x), item.type === 'zone' ? 200 : 140, state.board.width);
+      item.h = clamp(Math.round(gesture.orig.h + p.y - gesture.start.y), item.type === 'zone' ? 150 : 60, state.board.height);
       placeItem(item);
       gesture.moved = true;
       break;
@@ -1362,6 +1363,13 @@ viewport.addEventListener('wheel', (e) => {
 }, { passive: false });
 
 viewport.addEventListener('dblclick', (e) => {
+  const handle = e.target.closest('.resize-handle');
+  if (handle && state.canEdit) {
+    // Double-clic sur la poignée : la carte reprend la hauteur de son contenu.
+    const item = state.items.get(handle.closest('.card').dataset.id);
+    if (item && item.type !== 'zone' && item.h) { item.h = 0; placeItem(item); editItem(item, { h: 0 }, { silent: true }); }
+    return;
+  }
   const card = e.target.closest('.card');
   if (card && !card.classList.contains('card-zone')) { openFiche(state.items.get(card.dataset.id)); return; }
   if (!state.canEdit || e.target.closest('[data-link], .pin')) return;

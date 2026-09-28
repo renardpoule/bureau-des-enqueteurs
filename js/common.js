@@ -173,7 +173,7 @@ export function githubFields(config) {
 /** Fenêtre de réglages : nom, accès GitHub, code du comité. `onChange` est appelé après un enregistrement. */
 export function settingsDialog(onChange) {
   return modal((close) => {
-    const name = h('input', { type: 'text', value: session.name, maxlength: 60 });
+    const name = h('input', { type: 'text', value: session.name });
     const gh = githubFields(session.config);
     const error = h('p', { class: 'form-error', role: 'alert' });
     const save = h('button', { type: 'submit', class: 'btn btn-primary' }, 'Enregistrer');

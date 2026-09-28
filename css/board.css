@@ -137,14 +137,18 @@
   background: repeating-linear-gradient(45deg, #ddd8cc 0 10px, #d2ccbf 10px 20px); color: #6d665a; font: 13px var(--font-type);
 }
 
-.clip { max-height: 230px; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
-.clip.overflowing { -webkit-mask-image: linear-gradient(#000 70%, transparent); mask-image: linear-gradient(#000 70%, transparent); }
+/* Aucun texte n'est coupé : la carte grandit avec son contenu, et on peut l'agrandir à la poignée. */
+.clip { white-space: pre-wrap; overflow-wrap: anywhere; }
 
 .resize-handle {
-  position: absolute; right: -7px; bottom: -7px; width: 18px; height: 18px; cursor: nwse-resize; opacity: 0;
+  position: absolute; right: -9px; bottom: -9px; width: 22px; height: 22px; cursor: nwse-resize; opacity: 0;
   background: linear-gradient(135deg, transparent 45%, rgba(0,0,0,.55) 45% 55%, transparent 55% 65%, rgba(0,0,0,.55) 65% 75%, transparent 75%);
 }
 .card:hover > .resize-handle, .card.selected > .resize-handle { opacity: 1; }
+
+/* Carte agrandie en hauteur : le papier occupe toute la hauteur choisie. */
+.card.sized { display: flex; flex-direction: column; }
+.card.sized > :first-child { flex: 1; }
 
 /* ── polaroid (personne, photo) ─────────────────────────── */
 .polaroid {
@@ -159,7 +163,7 @@
 .caption { padding: 10px 2px 2px; text-align: center; line-height: 1.15; overflow-wrap: anywhere; }
 .caption.marker { font: 400 21px var(--font-marker); color: #1e1b17; }
 .caption.hand { font: 700 24px var(--font-hand); color: #283a6b; min-height: 30px; }
-.polaroid-body { margin-top: 6px; font: 13px/1.4 var(--font-mono); color: #3a352c; max-height: 140px; }
+.polaroid-body { margin-top: 6px; font: 13px/1.4 var(--font-mono); color: #3a352c; }
 .role-stamp {
   position: absolute; top: 20px; right: 4px; max-width: 80%; padding: 2px 8px; transform: rotate(9deg);
   border: 3px solid #b3261e; border-radius: 4px; color: #b3261e; background: rgba(246,244,238,.2);
@@ -192,7 +196,7 @@
 .lbl-row > span { font: 400 10px/1.8 var(--font-type); text-transform: uppercase; color: #8a8173; }
 .lbl-row strong { overflow-wrap: anywhere; }
 .lbl-row em { font-style: normal; overflow-wrap: anywhere; }
-.bag-label p { margin: 4px 0 0; max-height: 140px; }
+.bag-label p { margin: 4px 0 0; }
 
 /* ── paper sheets (témoignage, document) ─────────────────── */
 .sheet {
@@ -221,7 +225,7 @@
 .quote::after { content: ' »'; }
 .doc { background: #fff; }
 .doc-title { font: 400 19px/1.25 var(--font-type); text-decoration: underline; text-underline-offset: 4px; overflow-wrap: anywhere; }
-.doc-image { margin-top: 10px; max-height: 260px; overflow: hidden; border: 1px solid #ddd; }
+.doc-image { margin-top: 10px; border: 1px solid #ddd; }
 .doc-image img { height: auto; }
 
 /* ── index cards (lieu, événement) ───────────────────────── */
@@ -253,7 +257,6 @@
   clip-path: polygon(0 0, 100% 0, 100% 100%, 8% 100%, 0 94%);
 }
 .sticky-title { font-weight: 700; font-size: 25px; margin-bottom: 4px; text-decoration: underline; text-decoration-thickness: 1px; overflow-wrap: anywhere; }
-.sticky-body { max-height: 320px; }
 
 /* ── zones ──────────────────────────────────────────────── */
 .card-zone {
