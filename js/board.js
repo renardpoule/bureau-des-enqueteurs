@@ -1049,6 +1049,13 @@ async function deleteCase() {
 }
 
 // ── view (pan & zoom) ─────────────────────────────────────────────────
+let viewFrame = 0;
+/** Applique la vue au prochain rafraîchissement d'écran (une seule fois par image, même avec une souris très rapide). */
+function applyViewSoon() {
+  if (viewFrame) return;
+  viewFrame = requestAnimationFrame(() => { viewFrame = 0; applyView(); });
+}
+
 let viewSaveTimer;
 const zoomLabel = $('#zoom-level');
 let zoomLabelTimer;
@@ -1236,7 +1243,7 @@ viewport.addEventListener('pointermove', (e) => {
       viewport.classList.add('panning');
       state.view.x = gesture.view.x + e.clientX - gesture.start.x;
       state.view.y = gesture.view.y + e.clientY - gesture.start.y;
-      applyView();
+      applyViewSoon();
       break;
     case 'drag': {
       if (!gesture.moved) {
@@ -1246,18 +1253,16 @@ viewport.addEventListener('pointermove', (e) => {
         const top = state.items.get(gesture.ids[0]);
         if (top.type !== 'zone' && top.z < maxZ()) top.z = maxZ() + 1;
         for (const id of gesture.ids) cardEls.get(id)?.classList.add('lifted');
+        viewport.classList.add('moving');
       }
-      const p = toWorld(e.clientX, e.clientY);
-      const dx = p.x - gesture.startWorld.x;
-      const dy = p.y - gesture.startWorld.y;
-      for (const id of gesture.ids) {
-        const item = state.items.get(id);
-        const o = gesture.orig.get(id);
-        if (!item) continue;
-        item.x = clamp(o.x + dx, -150, state.board.width - 40);
-        item.y = clamp(o.y + dy, -150, state.board.height - 40);
-        placeItem(item);
-      }
+      gesture.last = { x: e.clientX, y: e.clientY };
+      if (gesture.frame) break;
+      const g = gesture;
+      g.frame = requestAnimationFrame(() => {
+        g.frame = 0;
+        if (gesture !== g) return;
+        moveDragged(g);
+      });
       break;
     }
     case 'link': {
@@ -1285,6 +1290,20 @@ viewport.addEventListener('pointermove', (e) => {
   }
 });
 
+function moveDragged(g) {
+  const p = toWorld(g.last.x, g.last.y);
+  const dx = p.x - g.startWorld.x;
+  const dy = p.y - g.startWorld.y;
+  for (const id of g.ids) {
+    const item = state.items.get(id);
+    const o = g.orig.get(id);
+    if (!item) continue;
+    item.x = clamp(o.x + dx, -150, state.board.width - 40);
+    item.y = clamp(o.y + dy, -150, state.board.height - 40);
+    placeItem(item);
+  }
+}
+
 function linkTargetAt(clientX, clientY) {
   const els = document.elementsFromPoint(clientX, clientY);
   for (const el of els) {
@@ -1298,8 +1317,12 @@ function endGesture(e) {
   const g = gesture;
   gesture = null;
   viewport.classList.remove('panning');
+  if (viewFrame) { cancelAnimationFrame(viewFrame); viewFrame = 0; applyView(); }
   if (!g) return;
+  viewport.classList.remove('moving');
   if (g.type === 'drag' && g.moved) {
+    if (g.frame) cancelAnimationFrame(g.frame);
+    moveDragged(g); // dernière position exacte
     for (const id of g.ids) state.dragging.delete(id);
     for (const id of g.ids) cardEls.get(id)?.classList.remove('lifted');
     commitPositions(g.ids);
