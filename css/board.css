@@ -110,11 +110,14 @@
   box-shadow: inset 0 0 14px rgba(0,0,0,.6);
 }
 .layer { position: absolute; inset: 0; pointer-events: none; }
-/* Couches séparées : déplacer une carte ou un fil ne redessine pas le bois. */
-#zones { z-index: 0; will-change: transform; }
-#cards { z-index: 1; will-change: transform; }
+/* Une seule grande couche (.world) : superposer plusieurs couches géantes à chaque image coûte plus cher
+   que de redessiner la petite zone autour d'une carte déplacée. */
+#zones { z-index: 0; }
+#cards { z-index: 1; }
+/* Pendant un déplacement du tableau ou d'une carte : pas de survol à recalculer sous la souris. */
+.viewport.panning .world, .viewport.moving .world { pointer-events: none; }
 .layer > * { pointer-events: auto; }
-.overlay { position: absolute; left: 0; top: 0; z-index: 2; overflow: visible; pointer-events: none; will-change: transform; }
+.overlay { position: absolute; left: 0; top: 0; z-index: 2; overflow: visible; pointer-events: none; }
 
 /* ══ cards (common) ════════════════════════════════════════ */
 .card {
