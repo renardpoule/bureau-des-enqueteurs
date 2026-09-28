@@ -1,0 +1,118 @@
+/* ── login ─────────────────────────────────────────────── */
+.login-view {
+  min-height: 100vh; display: grid; place-items: center; padding: 24px 16px;
+  background:
+    radial-gradient(ellipse at 50% 30%, rgba(227,179,65,.08), transparent 60%),
+    var(--bg);
+}
+.login-card {
+  position: relative; width: min(400px, 100%); padding: 34px 28px 26px;
+  background: #d8bd84; color: var(--ink);
+  background-image: linear-gradient(170deg, rgba(255,255,255,.18), rgba(0,0,0,.06));
+  border-radius: 4px 4px 6px 6px;
+  box-shadow: 0 30px 70px rgba(0,0,0,.6), inset 0 0 0 1px rgba(0,0,0,.08);
+}
+.login-card::before { /* folder tab */
+  content: ''; position: absolute; top: -18px; left: 24px; width: 130px; height: 20px;
+  background: #d8bd84; border-radius: 6px 6px 0 0;
+}
+.login-card h1 { margin: 0 0 6px; font: 400 30px/1.1 var(--font-type); }
+.login-kicker { margin: 0; font: 600 12px/1 var(--font-ui); letter-spacing: .18em; text-transform: uppercase; opacity: .7; }
+.login-warning {
+  display: inline-block; margin: 6px 0 22px; padding: 3px 8px; transform: rotate(-1.5deg);
+  border: 2px solid #9d2019; color: #9d2019; font: 400 12px/1.3 var(--font-type); text-transform: uppercase; letter-spacing: .06em;
+}
+.login-seal {
+  position: absolute; top: -26px; right: -18px; width: 62px; height: 62px; background: rgba(216,189,132,.9); border-radius: 50%;
+  display: grid; place-items: center; border: 3px double #9d2019; color: #9d2019;
+  font: 400 18px var(--font-type); transform: rotate(12deg); opacity: .8;
+}
+.login-card .field > span { color: rgba(34,30,24,.75); font-weight: 500; }
+.login-card input { background: #f7efdc; border-color: rgba(0,0,0,.25); color: var(--ink); }
+.login-card input:focus { border-color: #6b4d12; }
+.login-card .form-error { color: #9d2019; }
+.login-submit { width: 100%; margin-top: 6px; background: #2a2217; border-color: #2a2217; color: #f3e6c4; }
+.login-submit:hover { background: #3b3020; border-color: #3b3020; }
+
+/* ── top bar ───────────────────────────────────────────── */
+.topbar {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 10px 20px; background: rgba(22,23,26,.92); backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+}
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand small { display: block; color: var(--muted); font-size: 12px; }
+.brand-seal {
+  width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center;
+  border: 2px solid var(--red); color: var(--red-soft); font: 400 13px var(--font-type);
+}
+.topbar-actions { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.whoami { color: var(--muted); font-size: 14px; margin-right: 6px; }
+
+/* ── desk with case folders ─────────────────────────────── */
+.desk { max-width: 1240px; margin: 0 auto; padding: 28px 20px 60px; }
+.desk-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 26px; }
+.desk-head h1 { margin: 0; font: 400 34px/1.1 var(--font-type); }
+.desk-head p { margin: 4px 0 0; }
+.desk-tools { display: flex; gap: 8px; flex-wrap: wrap; }
+.desk-tools input { width: 240px; }
+.desk-tools select { width: auto; }
+
+.cases {
+  display: grid; gap: 34px 26px;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  padding-top: 16px;
+}
+.folder {
+  position: relative; display: flex; flex-direction: column; min-height: 190px;
+  padding: 20px 20px 16px; color: var(--ink); text-decoration: none;
+  background: #d6b87c;
+  background-image: linear-gradient(175deg, rgba(255,255,255,.2), rgba(0,0,0,.07));
+  border-radius: 3px 6px 6px 6px;
+  box-shadow: 0 10px 24px rgba(0,0,0,.45), inset 0 0 0 1px rgba(0,0,0,.06);
+  transition: transform .15s, box-shadow .15s;
+}
+.folder::before { /* tab */
+  content: attr(data-ref); position: absolute; left: 0; top: -22px; min-width: 120px; height: 24px; padding: 3px 12px 0;
+  background: #d6b87c; border-radius: 6px 6px 0 0;
+  font: 400 13px/1.4 var(--font-type); letter-spacing: .04em; color: rgba(34,30,24,.8);
+}
+.folder:hover { transform: translateY(-3px) rotate(-.4deg); box-shadow: 0 16px 34px rgba(0,0,0,.55); }
+.folder h2 { margin: 0 0 8px; font: 400 21px/1.2 var(--font-type); overflow-wrap: anywhere; }
+.folder p { margin: 0; font: 14px/1.45 var(--font-mono); color: rgba(34,30,24,.8); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.folder-meta { margin-top: auto; padding-top: 14px; display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; color: rgba(34,30,24,.7); }
+.folder .stamp { position: absolute; top: 14px; right: 12px; transform: rotate(8deg); background: rgba(243,236,220,.35); mix-blend-mode: multiply; }
+.folder .status-ouvert { color: #24692b; }
+.folder .status-en_cours { color: #8a5d00; }
+.folder .status-clos { color: #9d2019; }
+.folder .status-classe { color: #555; }
+.folder:has(.stamp) h2 { padding-right: 88px; }
+
+.empty {
+  grid-column: 1 / -1; padding: 50px 20px; text-align: center; color: var(--muted);
+  border: 2px dashed var(--line); border-radius: 12px;
+}
+.empty strong { display: block; color: var(--text); font: 400 20px var(--font-type); margin-bottom: 6px; }
+
+/* ── members dialog ─────────────────────────────────────── */
+.modal.members { width: min(680px, calc(100vw - 32px)); }
+.member-list { display: grid; gap: 8px; margin: 0 0 18px; max-height: 45vh; overflow: auto; }
+.member {
+  display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 10px;
+  padding: 8px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius);
+}
+.member small { display: block; color: var(--muted); }
+.member select { width: auto; min-height: 32px; padding: 3px 8px; }
+.member-actions { display: flex; gap: 4px; }
+.member-add { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; padding-top: 14px; border-top: 1px solid var(--line); }
+.member-add h3 { grid-column: 1 / -1; margin: 0 0 10px; font-size: 15px; }
+.member-add .modal-actions { grid-column: 1 / -1; margin-top: 0; }
+.member-add .form-error { grid-column: 1 / -1; }
+
+@media (max-width: 600px) {
+  .desk-tools, .desk-tools input { width: 100%; }
+  .member { grid-template-columns: auto 1fr; }
+  .member select, .member-actions { grid-column: 2; }
+  .member-add { grid-template-columns: 1fr; }
+}

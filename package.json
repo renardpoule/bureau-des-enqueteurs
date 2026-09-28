@@ -1,0 +1,22 @@
+{
+  "name": "bureau-des-enqueteurs",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Tableau d'enquête collaboratif pour le comité disciplinaire (Garry's Mod RP).",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server/index.js",
+    "dev": "node --disable-warning=ExperimentalWarning --watch server/index.js",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js",
+    "demo": "node --disable-warning=ExperimentalWarning scripts/demo.js"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "express": "^5.2.1",
+    "multer": "^2.4.0",
+    "ws": "^8.22.0"
+  }
+}
