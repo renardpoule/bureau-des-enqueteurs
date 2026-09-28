@@ -299,13 +299,15 @@ function markOverflow(el) {
 function placeItem(item) {
   const el = cardEls.get(item.id);
   if (!el) return;
-  el.style.left = `${item.x}px`;
-  el.style.top = `${item.y}px`;
-  el.style.width = `${item.w}px`;
-  if (item.type === 'zone') el.style.height = `${item.h || 400}px`;
-  else {
+  // Position par transform : pas de recalcul de mise en page pendant un déplacement.
+  const w = `${item.w}px`;
+  if (el.style.width !== w) el.style.width = w;
+  if (item.type === 'zone') {
+    el.style.height = `${item.h || 400}px`;
+    el.style.transform = `translate(${item.x}px, ${item.y}px)`;
+  } else {
     el.style.zIndex = String(Math.max(1, item.z));
-    el.style.transform = item.rotation ? `rotate(${item.rotation}deg)` : '';
+    el.style.transform = `translate(${item.x}px, ${item.y}px)${item.rotation ? ` rotate(${item.rotation}deg)` : ''}`;
   }
   const pin = pinEls.get(item.id);
   if (pin) {
@@ -1048,11 +1050,17 @@ async function deleteCase() {
 
 // ── view (pan & zoom) ─────────────────────────────────────────────────
 let viewSaveTimer;
+const zoomLabel = $('#zoom-level');
+let zoomLabelTimer;
 function applyView() {
   const v = state.view;
   world.style.transform = `translate(${v.x}px, ${v.y}px) scale(${v.s})`;
-  $('#zoom-level').textContent = `${Math.round(v.s * 100)} %`;
-  viewport.style.setProperty('--inv-zoom', String(1 / v.s));
+  // Le pourcentage n'est mis à jour qu'à la fin du geste (évite un recalcul de mise en page à chaque cran).
+  clearTimeout(zoomLabelTimer);
+  zoomLabelTimer = setTimeout(() => {
+    const zoom = `${Math.round(state.view.s * 100)} %`;
+    if (zoomLabel.textContent !== zoom) zoomLabel.textContent = zoom;
+  }, 120);
   clearTimeout(viewSaveTimer);
   viewSaveTimer = setTimeout(() => store.set(`bde:view:${caseId}`, state.view), 300);
 }
@@ -1237,7 +1245,7 @@ viewport.addEventListener('pointermove', (e) => {
         for (const id of gesture.ids) state.dragging.add(id);
         const top = state.items.get(gesture.ids[0]);
         if (top.type !== 'zone' && top.z < maxZ()) top.z = maxZ() + 1;
-        cardEls.get(gesture.ids[0])?.classList.add('lifted');
+        for (const id of gesture.ids) cardEls.get(id)?.classList.add('lifted');
       }
       const p = toWorld(e.clientX, e.clientY);
       const dx = p.x - gesture.startWorld.x;
@@ -1293,7 +1301,7 @@ function endGesture(e) {
   if (!g) return;
   if (g.type === 'drag' && g.moved) {
     for (const id of g.ids) state.dragging.delete(id);
-    cardEls.get(g.ids[0])?.classList.remove('lifted');
+    for (const id of g.ids) cardEls.get(id)?.classList.remove('lifted');
     commitPositions(g.ids);
   } else if (g.type === 'link') {
     tempString.hidden = true;
