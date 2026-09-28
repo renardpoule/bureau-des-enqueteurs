@@ -3,6 +3,7 @@ import {
   session, canWrite, restoreSession, readText, updateJSON, updateIndex, uploadImage, imageURL, PATHS,
 } from './session.js';
 import { decryptJSON } from './crypto.js';
+import { rich, plain, formatToolbar } from './richtext.js';
 import { applyOps, clone, pushOp, newId, nextNumber, BOARD } from './model.js';
 
 // ── configuration ─────────────────────────────────────────────────────
@@ -103,7 +104,7 @@ const store = {
 };
 
 const itemNumber = (item) => `${TYPES[item.type].prefix}-${String(item.number).padStart(2, '0')}`;
-const itemLabel = (item) => item.title || (item.body ? item.body.split('\n')[0].slice(0, 40) : '') || `${TYPES[item.type].label} sans titre`;
+const itemLabel = (item) => item.title || (item.body ? plain(item.body).split('\n').find((l) => l.trim())?.slice(0, 40) || '' : '') || `${TYPES[item.type].label} sans titre`;
 
 // ── start-up ──────────────────────────────────────────────────────────
 async function init() {
@@ -208,13 +209,13 @@ function buildCard(item) {
         h('div', { class: 'photo' }, img(item.image, item.title) || silhouette()),
         h('div', { class: 'caption marker' }, item.title || 'Individu non identifié'),
         item.subtitle && h('div', { class: 'role-stamp' }, item.subtitle),
-        item.body && h('div', { class: 'polaroid-body clip' }, item.body));
+        item.body && rich(item.body, 'polaroid-body clip'));
       break;
     case 'photo':
       inner = h('div', { class: 'polaroid' },
         h('div', { class: 'photo photo-wide' }, img(item.image, item.title) || h('div', { class: 'img-missing' }, 'Aucune image')),
         h('div', { class: 'caption hand' }, item.title || ' '),
-        item.body && h('div', { class: 'polaroid-body clip' }, item.body));
+        item.body && rich(item.body, 'polaroid-body clip'));
       break;
     case 'piece':
       inner = h('div', { class: 'bag' },
@@ -223,7 +224,7 @@ function buildCard(item) {
         h('div', { class: 'bag-label' },
           h('div', { class: 'lbl-row' }, h('span', {}, 'Désignation'), h('strong', {}, item.title || '—')),
           item.subtitle && h('div', { class: 'lbl-row' }, h('span', {}, 'Origine'), h('em', {}, item.subtitle)),
-          item.body && h('p', { class: 'clip' }, item.body)));
+          item.body && rich(item.body, 'bag-text clip')));
       break;
     case 'temoignage':
       inner = h('div', { class: 'sheet lined' },
@@ -231,7 +232,7 @@ function buildCard(item) {
         h('div', { class: 'sheet-title' }, item.title || 'Témoin anonyme'),
         (item.event_date || item.subtitle) && h('div', { class: 'sheet-meta' },
           [item.event_date, item.subtitle && `recueilli par ${item.subtitle}`].filter(Boolean).join(' · ')),
-        h('div', { class: 'sheet-body quote clip' }, item.body || '…'));
+        rich(item.body || '…', 'sheet-body clip'));
       break;
     case 'document':
       inner = h('div', { class: 'sheet doc' },
@@ -239,7 +240,7 @@ function buildCard(item) {
         h('div', { class: 'doc-title' }, item.title || 'Sans titre'),
         item.subtitle && h('div', { class: 'sheet-meta' }, `Source : ${item.subtitle}`),
         item.image && h('div', { class: 'doc-image' }, img(item.image, item.title)),
-        item.body && h('div', { class: 'sheet-body clip' }, item.body));
+        item.body && rich(item.body, 'sheet-body clip'));
       break;
     case 'lieu':
     case 'evenement':
@@ -248,12 +249,12 @@ function buildCard(item) {
         t === 'evenement' && item.event_date && h('div', { class: 'event-date' }, item.event_date),
         t === 'lieu' && item.image && h('div', { class: 'index-image' }, img(item.image, item.title)),
         h('div', { class: 'index-title' }, item.title || (t === 'lieu' ? 'Lieu à préciser' : 'Événement')),
-        item.body && h('div', { class: 'index-body clip' }, item.body));
+        item.body && rich(item.body, 'index-body clip'));
       break;
     case 'note':
       inner = h('div', { class: 'sticky', style: { background: NOTE_COLORS[item.color] || NOTE_COLORS.jaune } },
         item.title && h('div', { class: 'sticky-title' }, item.title),
-        h('div', { class: 'sticky-body clip' }, item.body || (item.title ? '' : 'Note…')));
+        rich(item.body || (item.title ? '' : 'Note…'), 'sticky-body clip'));
       break;
     case 'zone':
       return h('div', { class: 'card card-zone', dataset: { id: item.id }, style: { '--zone': ZONE_COLORS[item.color] || ZONE_COLORS.blanc } },
@@ -274,6 +275,7 @@ function renderItem(item) {
   if (old) old.replaceWith(el);
   else (item.type === 'zone' ? zonesLayer : cardsLayer).append(el);
   cardEls.set(item.id, el);
+  if (item.fs && item.fs !== 1) el.style.setProperty('--fs', item.fs);
   if (state.selection?.kind === 'item' && state.selection.id === item.id) el.classList.add('selected');
   if (item.type !== 'zone' && !pinEls.has(item.id)) {
     const pin = s('g', { class: 'pin', 'data-id': item.id });
@@ -682,6 +684,18 @@ function editItem(item, fields, { silent = false } = {}) {
   }
 }
 
+function segmented(name, options, current, onPick) {
+  return h('div', { class: 'segmented', role: 'radiogroup', 'aria-label': name },
+    options.map(([value, text, title]) => h('button', {
+      type: 'button', role: 'radio', class: current === value ? 'on' : '', 'aria-checked': String(current === value), title,
+      onclick: (e) => {
+        e.currentTarget.parentElement.querySelectorAll('button').forEach((x) => { x.classList.remove('on'); x.setAttribute('aria-checked', 'false'); });
+        e.currentTarget.classList.add('on'); e.currentTarget.setAttribute('aria-checked', 'true');
+        onPick(value);
+      },
+    }, text)));
+}
+
 function colorSwatches(palette, current, onPick, label) {
   return h('div', { class: 'swatches', role: 'radiogroup', 'aria-label': label },
     Object.entries(palette).map(([name, value]) => h('button', {
@@ -729,6 +743,18 @@ function renderItemInspector(item) {
       : h('input', { type: 'text' });
     input.value = item[field];
     input.dataset.field = field;
+    if (field === 'body' && item.type !== 'zone') {
+      input.rows = Math.max(input.rows, 8);
+      form.append(h('div', { class: 'field' }, h('span', {}, label), formatToolbar(input), input,
+        h('small', { class: 'muted' }, '**gras**, *italique*, __souligné__, # titre, - liste… (comme sur Discord)')));
+      input.addEventListener('input', () => {
+        item.body = input.value;
+        renderItem(item);
+        renderSidebarSoon();
+        editItem(item, { body: input.value });
+      });
+      continue;
+    }
     input.addEventListener('input', () => {
       item[field] = input.value;
       renderItem(item);
@@ -737,6 +763,10 @@ function renderItemInspector(item) {
     });
     form.append(h('label', { class: 'field' }, h('span', {}, label), input));
   }
+
+  form.append(h('div', { class: 'field' }, h('span', {}, 'Taille du texte'),
+    segmented('Taille du texte', [['0.8', 'Petit'], ['1', 'Normal'], ['1.3', 'Grand'], ['1.7', 'Très grand'], ['2.2', 'Énorme']],
+      String(item.fs || 1), (v) => { item.fs = Number(v); renderItem(item); editItem(item, { fs: item.fs }, { silent: true }); })));
 
   if (item.type === 'note' || item.type === 'zone') {
     const palette = item.type === 'note' ? NOTE_COLORS : ZONE_COLORS;
@@ -826,16 +856,6 @@ function renderLinkInspector(link) {
   let labelTimer;
   label.addEventListener('input', () => { clearTimeout(labelTimer); labelTimer = setTimeout(() => save({ label: label.value }), 400); });
 
-  const segmented = (name, options, current, onPick) => h('div', { class: 'segmented', role: 'radiogroup', 'aria-label': name },
-    options.map(([value, text, title]) => h('button', {
-      type: 'button', role: 'radio', class: current === value ? 'on' : '', 'aria-checked': String(current === value), title,
-      onclick: (e) => {
-        e.currentTarget.parentElement.querySelectorAll('button').forEach((x) => { x.classList.remove('on'); x.setAttribute('aria-checked', 'false'); });
-        e.currentTarget.classList.add('on'); e.currentTarget.setAttribute('aria-checked', 'true');
-        onPick(value);
-      },
-    }, text)));
-
   content.push(h('div', { class: 'inspector-form' },
     h('label', { class: 'field' }, h('span', {}, 'Légende du fil'), label),
     h('div', { class: 'field' }, h('span', {}, 'Sens'),
@@ -875,7 +895,7 @@ function ficheContent(item) {
     item.image && h('div', { class: 'fiche-image' }, img(item.image, item.title)),
     h('h3', {}, itemLabel(item)),
     rows.length && h('dl', {}, rows.map(([k, v]) => [h('dt', {}, k), h('dd', {}, v)])),
-    item.body && h('div', { class: 'fiche-body' }, item.body));
+    item.body && rich(item.body, 'fiche-body'));
 }
 
 function openFiche(item) {
@@ -1162,6 +1182,7 @@ function itemsInsideZone(zone) {
 
 viewport.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 1) return;
+  if (e.target.closest?.('.card a')) return; // lien cliquable dans une carte
   closeMenu();
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   viewport.setPointerCapture(e.pointerId);
@@ -1390,7 +1411,10 @@ function openAddMenu(clientX, clientY, at) {
     h('div', { class: 'add-menu-title' }, 'Épingler au tableau'),
     Object.entries(TYPES).map(([type, def]) => h('button', {
       type: 'button', role: 'menuitem', onclick: () => { closeMenu(); addItem(type, at); },
-    }, icon(type), def.label)));
+    }, icon(type), def.label)),
+    h('div', { class: 'add-menu-sep' }),
+    h('button', { type: 'button', role: 'menuitem', onclick: () => { closeMenu(); importDialog(); } }, icon('document'), 'Importer des éléments…'),
+    h('button', { type: 'button', role: 'menuitem', onclick: () => { closeMenu(); exportBoard(); } }, icon('document'), 'Exporter le tableau'));
   document.body.append(menuEl);
   const r = menuEl.getBoundingClientRect();
   menuEl.style.left = `${clamp(clientX, 8, innerWidth - r.width - 8)}px`;
@@ -1402,6 +1426,144 @@ function closeMenu() {
   menuEl = null;
 }
 document.addEventListener('pointerdown', (e) => { if (menuEl && !menuEl.contains(e.target) && e.target.id !== 'btn-add') closeMenu(); });
+
+// ── import / export ───────────────────────────────────────────────────
+// Format texte (JSON) : { case: {…}, items: [{ ref, type, title, body, x, y, w, … }], links: [{ from, to, label, … }] }
+// Pratique pour préparer un tableau entier d'un coup, ou pour faire une sauvegarde.
+const IMPORT_FIELDS = ['title', 'subtitle', 'body', 'image', 'event_date', 'color'];
+
+function importBoard(data, replace) {
+  if (!data || !Array.isArray(data.items)) throw new Error('Format invalide : il manque la liste « items ».');
+  const sources = data.items.filter((it) => it && TYPES[it.type]);
+  if (!sources.length) throw new Error('Aucun élément reconnu dans le texte collé.');
+  const num = (v, d) => (Number.isFinite(Number(v)) && v !== '' && v !== null ? Number(v) : d);
+  const text = (v) => (v === undefined || v === null ? '' : String(v));
+
+  // Sans remplacement, les éléments importés sont posés à droite de ceux déjà présents.
+  let dx = 0; let dy = 0;
+  if (!replace && state.items.size) {
+    const cur = [...state.items.values()].map(itemBounds);
+    const maxX = Math.max(...cur.map((b) => b.x + b.w));
+    const minY = Math.min(...cur.map((b) => b.y));
+    dx = maxX + 300 - Math.min(...sources.map((it) => num(it.x, 0)));
+    dy = minY - Math.min(...sources.map((it) => num(it.y, 0)));
+  }
+  if (replace) {
+    for (const it of [...state.items.values()]) { queueOp({ k: 'item:del', id: it.id }); removeItemLocal(it.id); }
+  }
+  if (data.case && typeof data.case === 'object') {
+    const fields = {};
+    for (const k of ['title', 'reference', 'description']) if (data.case[k]) fields[k] = text(data.case[k]);
+    if (STATUS_LABELS[data.case.status]) fields.status = data.case.status;
+    if (Object.keys(fields).length) {
+      Object.assign(state.case, fields);
+      queueOp({ k: 'case:set', fields });
+      sync.indexForce = true;
+      renderHeader();
+    }
+  }
+  const refs = new Map();
+  let z = maxZ();
+  for (const src of sources) {
+    const def = TYPES[src.type];
+    const item = {
+      id: newId(), type: src.type, number: nextNumber({ items: [...state.items.values()] }, src.type),
+      ...Object.fromEntries(IMPORT_FIELDS.map((k) => [k, text(src[k])])),
+      x: clamp(num(src.x, 3000) + dx, -150, state.board.width - 40),
+      y: clamp(num(src.y, 2000) + dy, -150, state.board.height - 40),
+      w: Math.max(80, num(src.w, def.width)),
+      h: Math.max(0, num(src.h, def.height || 0)),
+      rotation: clamp(num(src.rotation, 0), -45, 45),
+      fs: clamp(num(src.fs, 1), 0.5, 4),
+      z: 0, created_by: session.name, created_at: Date.now(),
+    };
+    if (!item.color) item.color = def.color || '';
+    if (item.image && !/^(https?:\/\/|enc:)/i.test(item.image)) item.image = '';
+    item.z = src.type === 'zone' ? -(++z) : ++z;
+    state.items.set(item.id, item);
+    sync.created.add(item.id);
+    queueOp({ k: 'item:add', item: { ...item } });
+    renderItem(item);
+    if (src.ref !== undefined) refs.set(String(src.ref), item.id);
+  }
+  let linkCount = 0;
+  for (const l of Array.isArray(data.links) ? data.links : []) {
+    const from = refs.get(String(l.from));
+    const to = refs.get(String(l.to));
+    if (!from || !to || from === to) continue;
+    if ([...state.links.values()].some((o) => (o.from_id === from && o.to_id === to) || (o.from_id === to && o.to_id === from))) continue;
+    const link = {
+      id: newId(), from_id: from, to_id: to, label: text(l.label),
+      arrow: ['none', 'end', 'start', 'both'].includes(l.arrow) ? l.arrow : 'none',
+      style: l.style === 'dashed' ? 'dashed' : 'solid',
+      color: STRING_COLORS[l.color] ? l.color : 'rouge',
+      created_at: Date.now(),
+    };
+    state.links.set(link.id, link);
+    queueOp({ k: 'link:add', link: { ...link } });
+    renderLink(link);
+    linkCount++;
+  }
+  log(`a importé ${sources.length} élément${sources.length > 1 ? 's' : ''} et ${linkCount} fil${linkCount > 1 ? 's' : ''}`);
+  select(null);
+  renderSidebar();
+  requestAnimationFrame(() => fitAll());
+  return { items: sources.length, links: linkCount };
+}
+
+function importDialog() {
+  modal((close) => {
+    const area = h('textarea', { rows: 14, placeholder: 'Collez ici le texte d’import (commence par { ).', spellcheck: 'false' });
+    const replace = h('input', { type: 'checkbox' });
+    const error = h('p', { class: 'form-error', role: 'alert' });
+    const form = h('form', { class: 'modal-body' },
+      h('h2', {}, 'Importer des éléments'),
+      h('p', { class: 'muted' }, 'Collez un tableau préparé à l’avance (format JSON, par exemple fourni par Claude ou exporté d’un autre dossier). Il sera chiffré comme le reste du dossier.'),
+      h('label', { class: 'field' }, area),
+      h('label', { class: 'check' }, replace, 'Remplacer tout le contenu actuel du tableau'),
+      error,
+      h('div', { class: 'modal-actions' },
+        h('button', { type: 'button', class: 'btn', onclick: () => close() }, 'Annuler'),
+        h('button', { type: 'submit', class: 'btn btn-primary' }, 'Importer')));
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      error.textContent = '';
+      let data;
+      try {
+        data = JSON.parse(area.value.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, ''));
+      } catch {
+        error.textContent = 'Texte illisible : vérifiez que vous avez tout copié, du premier { au dernier }.';
+        return;
+      }
+      if (replace.checked && state.items.size && !await confirmDialog(`Les ${state.items.size} éléments actuels du tableau seront retirés et remplacés. Continuer ?`, { ok: 'Remplacer', danger: true, title: 'Remplacer le tableau' })) return;
+      try {
+        const n = importBoard(data, replace.checked);
+        toast(`${n.items} éléments et ${n.links} fils importés.`, 'ok');
+        close();
+      } catch (err) { error.textContent = err.message; }
+    });
+    return form;
+  }, { className: 'import-modal' });
+}
+
+function exportBoard() {
+  const refs = new Map([...state.items.keys()].map((id, i) => [id, `e${i + 1}`]));
+  const data = {
+    bureau: 1,
+    case: { title: state.case.title, reference: state.case.reference, description: state.case.description, status: state.case.status },
+    items: [...state.items.values()].map((i) => ({
+      ref: refs.get(i.id), type: i.type, title: i.title, subtitle: i.subtitle, body: i.body, image: i.image, event_date: i.event_date,
+      color: i.color, x: Math.round(i.x), y: Math.round(i.y), w: Math.round(i.w), h: Math.round(i.h || 0), rotation: i.rotation, fs: i.fs || 1,
+    })),
+    links: [...state.links.values()].map((l) => ({ from: refs.get(l.from_id), to: refs.get(l.to_id), label: l.label, arrow: l.arrow, style: l.style, color: l.color })),
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = h('a', { href: URL.createObjectURL(blob), download: `${state.case.reference || 'dossier'}.json` });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  toast('Tableau exporté (fichier non chiffré : gardez-le en lieu sûr).');
+}
 
 // ── images: paste & drop ──────────────────────────────────────────────
 async function addImageItems(files, at) {
